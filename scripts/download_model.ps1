@@ -95,21 +95,16 @@ if ($env:BONSAI_DISABLE_HF_TRANSFER -ne '1') {
     $env:HF_HUB_ENABLE_HF_TRANSFER = '1'
 }
 
-# Pass everything via env vars instead of string-interpolating into the
-# Python source -- keeps the user-controlled token + repo id out of the
-# parsed code path. Same effect as the bash version's `env VAR=... python
-# -c ...`, but immune to characters that would otherwise need escaping.
-$env:BONSAI_HF_REPO       = $hfRepo
-$env:BONSAI_HF_LOCAL_DIR  = $savedDir
-$env:BONSAI_HF_TOKEN_PASS = $env:BONSAI_TOKEN
+# Pass repo id via env var instead of string-interpolating into the Python
+# source -- keeps the user-controlled value out of the parsed code path.
+# Same effect as the bash version's `env VAR=... python -c ...`, but immune
+# to characters that would otherwise need escaping.
+$env:BONSAI_HF_REPO      = $hfRepo
+$env:BONSAI_HF_LOCAL_DIR = $savedDir
 
 $pyCode = @"
 import os
-from huggingface_hub import snapshot_download, login
-
-token = os.environ.get('BONSAI_HF_TOKEN_PASS') or None
-if token:
-    login(token=token, add_to_git_credential=False)
+from huggingface_hub import snapshot_download
 
 snapshot_download(
     repo_id=os.environ['BONSAI_HF_REPO'],

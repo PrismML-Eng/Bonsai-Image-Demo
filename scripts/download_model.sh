@@ -6,13 +6,9 @@
 #   ./scripts/download_model.sh ternary               # same — explicit
 #   ./scripts/download_model.sh binary                # binary 1-bit, platform-aware
 #   ./scripts/download_model.sh --model binary-gemlite  # full form, override backend
-#   BONSAI_TOKEN=hf_... ./scripts/download_model.sh   # private until public launch
 #
 # Short form (ternary | binary) picks mlx on macOS and gemlite on Linux.
 # Long form (ternary-mlx | binary-gemlite | …) overrides the backend choice.
-#
-# BONSAI_TOKEN is optional if you've already done `huggingface-cli login`
-# (or `setup.sh` cached a token).
 set -e
 
 DEMO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -121,10 +117,7 @@ if [ "${BONSAI_DISABLE_HF_TRANSFER:-0}" != "1" ]; then
 fi
 
 env $_hf_transfer_env "$DEMO_DIR/.venv/bin/python" -c "
-from huggingface_hub import snapshot_download, login
-token = '$BONSAI_TOKEN' or None
-if token:
-    login(token=token, add_to_git_credential=False)
+from huggingface_hub import snapshot_download
 snapshot_download(
     repo_id='$_hf_repo',
     local_dir='$_saved_dir',

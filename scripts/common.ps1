@@ -1,8 +1,8 @@
 # Shared helpers for Bonsai Image demo PowerShell scripts.
 # Dot-source this file: . "$PSScriptRoot\common.ps1"
 #
-# Parallel to scripts/common.sh -- same env knobs (BONSAI_TOKEN,
-# BONSAI_PACKAGE_MIN_AGE_DAYS, BONSAI_DISABLE_HF_TRANSFER, ...) and the
+# Parallel to scripts/common.sh -- same env knobs
+# (BONSAI_PACKAGE_MIN_AGE_DAYS, BONSAI_DISABLE_HF_TRANSFER, ...) and the
 # same helper names (`info`, `warn`, `err`, `step`, `download`,
 # `Default-Model`, ...).
 

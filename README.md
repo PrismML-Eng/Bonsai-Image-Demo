@@ -44,15 +44,11 @@ Generate images with Bonsai on Apple Silicon (macOS via [mflux](https://github.c
 
 ```powershell
 Set-ExecutionPolicy -Scope CurrentUser RemoteSigned   # one-time; PowerShell blocks .ps1 files by default
-$env:BONSAI_TOKEN = 'hf_...'                          # until weights go public
 .\setup.ps1
 .\scripts\generate.ps1 -p "An icy Bonsai tree, in a rainy forest with a snowy mountains in the background, photo realistic."
 ```
 
 If something doesn't work on Windows, see [scripts/windows.md](scripts/windows.md) for prereqs and the FAQ of known failure modes (execution policy, missing git, old NVIDIA driver, vcredist, ports in use, OOM at 1024x1024, etc).
-
-> Bonsai models are currently private. Set `BONSAI_TOKEN=hf_…` (or run
-> `huggingface-cli login` once) until the public launch.
 
 ## Download models
 
@@ -69,7 +65,6 @@ Ternary (1.58-bit) is the recommended demo variant — better quality at a modes
 
 | Variable | Values | Default |
 |----------|--------|---------|
-| `BONSAI_TOKEN` | HuggingFace token | needed until public launch |
 | `BONSAI_VARIANT` | `ternary` (1.58-bit) / `binary` (1-bit) | `ternary` |
 | `BONSAI_PACKAGE_MIN_AGE_DAYS` | int | `7` |
 

@@ -31,13 +31,10 @@ jobs:
       - name: Run setup.sh
         env:
           SKIP_DOWNLOAD: "1"
-          BONSAI_TOKEN: ${{ secrets.BONSAI_TOKEN }}
         run: ./setup.sh
 
       - name: Download ternary-mlx model (cache miss)
         if: steps.cache-model.outputs.cache-hit != 'true'
-        env:
-          BONSAI_TOKEN: ${{ secrets.BONSAI_TOKEN }}
         run: ./scripts/download_model.sh --model ternary-mlx
 
       - name: Generate a small image (smoke)

@@ -4,7 +4,6 @@ This doc is the catalog of things that go wrong on a fresh Windows box and how t
 
 ```powershell
 Set-ExecutionPolicy -Scope CurrentUser RemoteSigned    # one-time, allows .ps1 to run
-$env:BONSAI_TOKEN = 'hf_...'                           # until weights go public
 .\setup.ps1                                            # installs uv, torch+cu128, triton-windows, gemlite, hqq, backend_gpu, model
 .\scripts\serve.ps1                                    # backend on :8000 + Next.js studio on :3000
 ```
@@ -25,7 +24,6 @@ Nothing else in the demo installs these for you. Check each one if setup misbeha
 | Execution policy RemoteSigned (CurrentUser) | otherwise PowerShell refuses to run any `.ps1` | `Get-ExecutionPolicy -Scope CurrentUser` returns `RemoteSigned` or `Unrestricted` | `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`, or invoke each script with `powershell -ExecutionPolicy Bypass -File .\setup.ps1` |
 | Visual C++ Runtime 14.42+ | triton-windows loads a native DLL (`libtriton`). Missing this gives `ImportError: DLL load failed`. Most dev machines already have it from VS, Python installers, or another tool | run setup; if triton import works in the post-install smoke test, you're fine | https://aka.ms/vs/17/release/vc_redist.x64.exe |
 | ~15 GB free disk | torch wheel 2.6 GB, model 4 GB, node_modules ~700 MB, plus Triton/gemlite caches that grow over time | `Get-PSDrive C` | free space |
-| HuggingFace token with access to `prism-ml/bonsai-image-*` | weights are gated until the public launch | login at https://huggingface.co | set `$env:BONSAI_TOKEN = 'hf_...'` before running setup.ps1 |
 
 System Python is **not** required. uv will fetch its own Python 3.11.
 
@@ -109,16 +107,15 @@ $env:PYTHONUTF8 = '1'
 
 The 3060 Laptop has 6 GB VRAM. 512x512 needs ~5 GB, so 1024x1024 will OOM. Stick to fast presets (512x512, 624x416, 416x624). On a 12 GB+ card the full quality presets work.
 
-### download_model.ps1: "401 Client Error" / "Repository Not Found"
+### download_model.ps1: "Repository Not Found" or similar HF error
 
-Either the token isn't set, the token doesn't have access to `prism-ml/bonsai-image-*`, or there's a typo:
+If HuggingFace is returning errors:
 
 ```powershell
-$env:BONSAI_TOKEN = 'hf_yourtokenhere'
 .\scripts\download_model.ps1 ternary
 ```
 
-If you've already run `huggingface-cli login` (or setup.ps1 ran with `BONSAI_TOKEN` set), the token is cached in `%USERPROFILE%\.cache\huggingface\token` and the env var is optional.
+Possible causes: typo in the model name, transient HF Hub outage, or a network issue (corporate proxy, VPN). Retry after a minute; if it still fails, check the HF Hub status page.
 
 ### uv sync or pip install hangs / fails partway
 
@@ -208,14 +205,12 @@ Reference, in case you want to do parts manually:
    - editable install of `vendor/image-studio/backend_gpu` with `--no-deps`
    - smoke test: `import torch, triton, gemlite, hqq, diffusers, transformers, accelerate; from backend_gpu.pipeline_gpu import GpuPipeline`
 9. Wires Node: writes `node.cmd`, `npm.cmd`, `npx.cmd` shims into `.venv\Scripts\` that point at `node.exe` + `npm-cli.js` inside the `nodejs_wheel` site-packages dir.
-10. If `$env:BONSAI_TOKEN` is set, runs `huggingface_hub.login(...)`.
-11. Calls `.\scripts\download_model.ps1 $variant` unless `$env:SKIP_DOWNLOAD = '1'`.
+10. Calls `.\scripts\download_model.ps1 $variant` unless `$env:SKIP_DOWNLOAD = '1'`.
 
 ## Knobs
 
 | env var | default | what it does |
 |---|---|---|
-| `BONSAI_TOKEN` | unset | HF token; needed until launch |
 | `BONSAI_VARIANT` | `ternary` | which Bonsai arm to download/serve (`ternary` or `binary`) |
 | `SKIP_DOWNLOAD` | unset | `1` skips the model download in setup.ps1 |
 | `BONSAI_SKIP_GPU_STACK` | unset | `1` skips the torch/triton/gemlite/hqq install (frontend-only setup, useful when the backend runs elsewhere) |

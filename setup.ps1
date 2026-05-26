@@ -13,7 +13,6 @@
 #
 # Usage:
 #   .\setup.ps1
-#   $env:BONSAI_TOKEN = 'hf_...'; .\setup.ps1
 #
 # IMPORTANT: Windows blocks script execution by default. ONE-TIME setup
 # in any PowerShell window (or in your profile):
@@ -22,7 +21,6 @@
 #   powershell -ExecutionPolicy Bypass -File .\setup.ps1
 #
 # Knobs (env vars):
-#   BONSAI_TOKEN                 HuggingFace token (needed until public launch).
 #   BONSAI_VARIANT               'ternary' (default) or 'binary'.
 #   SKIP_DOWNLOAD                '1' to skip the post-install model download.
 #   BONSAI_SKIP_GPU_STACK        '1' to skip the torch/triton/gemlite/hqq
@@ -502,20 +500,7 @@ if ($nodeVer -and $npmVer) {
 }
 
 # ────────────────────────────────────────────────────
-#  8. Configure HuggingFace token (if provided)
-# ────────────────────────────────────────────────────
-if ($env:BONSAI_TOKEN) {
-    step "Logging into HuggingFace ..."
-    $py = @"
-from huggingface_hub import login
-login(token='$($env:BONSAI_TOKEN)', add_to_git_credential=False)
-"@
-    & $VenvPy -c $py 2>$null
-    info "HuggingFace token configured."
-}
-
-# ────────────────────────────────────────────────────
-#  9. Download the default model (skippable)
+#  8. Download the default model (skippable)
 # ────────────────────────────────────────────────────
 if ($env:SKIP_DOWNLOAD -ne '1') {
     $variant = if ($env:BONSAI_VARIANT) { $env:BONSAI_VARIANT } else { 'ternary' }
@@ -525,7 +510,7 @@ if ($env:SKIP_DOWNLOAD -ne '1') {
         info "$variant model present."
     } else {
         warn "Model download failed. Retry with:"
-        Write-Host "    `$env:BONSAI_TOKEN='hf_...'; .\scripts\download_model.ps1 $variant"
+        Write-Host "    .\scripts\download_model.ps1 $variant"
     }
 }
 
