@@ -1,0 +1,36 @@
+[project]
+name = "bonsai-image-demo"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    # Vendored Node.js + npm so the frontend works without a system-level node
+    # install. `uv sync` drops platform-specific wheels into .venv/bin/{node,npm}.
+    "nodejs-wheel-binaries>=22",
+    "huggingface-hub",
+    # Rust-based downloader: parallel HTTP range requests per file, often
+    # saturates the link where the default python `requests` backend stalls
+    # around 10-20 MB/s. Gated on by HF_HUB_ENABLE_HF_TRANSFER=1 (set in
+    # scripts/download_model.sh).
+    "hf-transfer",
+    # macOS path: in-process MLX via prism-image-studio (pulls mflux + mlx).
+    "mflux>=0.17.0 ; sys_platform == 'darwin'",
+    "prism-image-studio ; sys_platform == 'darwin'",
+    # Linux GPU path: gemlite kernels via backend_gpu — no mlx, no mflux.
+    "prism-image-studio-backend-gpu ; sys_platform == 'linux'",
+    "gemlite ; sys_platform == 'linux'",
+    "hqq ; sys_platform == 'linux'",
+]
+
+[tool.uv]
+# diffusers>=0.38 (a backend_gpu dep) drags in safetensors prereleases.
+prerelease = "allow"
+
+# Private deps live under vendor/ — setup.sh clones them on first run.
+# Switch to public git/PyPI refs once these go public.
+[tool.uv.sources]
+mflux = { path = "vendor/mflux-prism", editable = true }
+prism-image-studio = { path = "vendor/image-studio", editable = true }
+prism-image-studio-backend-gpu = { path = "vendor/image-studio/backend_gpu", editable = true }
+
+[tool.setuptools]
+packages = []

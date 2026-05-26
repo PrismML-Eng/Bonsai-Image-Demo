@@ -1,0 +1,40 @@
+# Byte-compiled / optimized
+__pycache__/
+*.py[codz]
+*$py.class
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+*.egg
+
+# Environments
+.env
+.envrc
+.venv
+venv/
+
+# IDE
+.vscode/
+.idea/
+.cursorignore
+.cursorindexingignore
+
+# mypy / ruff
+.mypy_cache/
+.ruff_cache/
+
+# ── Bonsai Image demo: downloaded/generated artifacts ──
+models/
+outputs/
+.hf_cache/
+*.tar.gz
+*.zip
+
+.serve-logs/
+
+# deps cloned by setup.sh
+vendor/
+
+.claude

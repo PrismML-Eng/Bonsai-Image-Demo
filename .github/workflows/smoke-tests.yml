@@ -1,0 +1,106 @@
+name: Platform smoke tests
+
+# Manual via Actions tab, or by adding the `smoke-test` label to a PR
+# (label-add only; re-running means remove + re-add the label).
+on:
+  workflow_dispatch:
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: read
+
+jobs:
+  macos-apple-silicon:
+    name: macOS Apple Silicon — full e2e
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      contains(github.event.pull_request.labels.*.name, 'smoke-test')
+    runs-on: macos-14
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache HF model (ternary-mlx)
+        id: cache-model
+        uses: actions/cache@v4
+        with:
+          path: models/bonsai-image-4B-ternary-mlx
+          key: ${{ runner.os }}-${{ runner.arch }}-model-ternary-mlx-v1
+
+      - name: Run setup.sh
+        env:
+          SKIP_DOWNLOAD: "1"
+          BONSAI_TOKEN: ${{ secrets.BONSAI_TOKEN }}
+        run: ./setup.sh
+
+      - name: Download ternary-mlx model (cache miss)
+        if: steps.cache-model.outputs.cache-hit != 'true'
+        env:
+          BONSAI_TOKEN: ${{ secrets.BONSAI_TOKEN }}
+        run: ./scripts/download_model.sh --model ternary-mlx
+
+      - name: Generate a small image (smoke)
+        run: |
+          ./scripts/generate.sh \
+            -p "a small red square" \
+            --size 256x256 \
+            --steps 4 --seed 42
+          ls -la outputs/ternary-mlx/
+          test "$(ls outputs/ternary-mlx/*.png 2>/dev/null | wc -l)" -ge 1
+          test "$(stat -f%z outputs/ternary-mlx/*.png)" -gt 1024
+
+      - name: Serve smoke test
+        run: |
+          set -e
+          ./scripts/serve.sh > /tmp/serve.log 2>&1 &
+          SERVE_PID=$!
+          for i in $(seq 1 120); do
+            if lsof -nP -iTCP:8000 -sTCP:LISTEN >/dev/null 2>&1 \
+            && lsof -nP -iTCP:3000 -sTCP:LISTEN >/dev/null 2>&1; then
+              echo "both ports bound @ ${i}s"; break
+            fi
+            sleep 1
+          done
+          curl -fsS --max-time 10 http://localhost:8000/backends
+          curl -fsS --max-time 30 -o /dev/null -w "frontend HTTP %{http_code}\n" http://localhost:3000/
+          kill -TERM $SERVE_PID
+          sleep 5
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-serve-log
+          path: |
+            /tmp/serve.log
+            .serve-logs/
+
+  linux-x86-setup:
+    name: Linux x86 — setup only (no MLX without GPU)
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      contains(github.event.pull_request.labels.*.name, 'smoke-test')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run setup.sh
+        env:
+          SKIP_DOWNLOAD: "1"
+        run: ./setup.sh
+
+      - name: Verify .venv + Python imports
+        run: |
+          .venv/bin/node --version
+          .venv/bin/npm --version
+          .venv/bin/python -c "import mflux; print('mflux ok')"
+          .venv/bin/python -c "from backend.pipeline import FluxPipeline, PipelineConfig; print('image-studio backend ok')"
+
+      - name: Verify scripts
+        run: |
+          test -x scripts/generate.sh
+          test -x scripts/serve.sh
+          test -x scripts/download_model.sh
+          ./scripts/download_model.sh --help
