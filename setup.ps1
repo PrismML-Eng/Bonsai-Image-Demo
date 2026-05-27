@@ -135,13 +135,25 @@ $repoRoot = Split-Path -Qualifier $ScriptDir
 $drive    = Get-PSDrive -Name ($repoRoot.TrimEnd(':')) -ErrorAction SilentlyContinue
 if ($drive) {
     $freeGB = [math]::Round($drive.Free / 1GB, 1)
-    if ($freeGB -lt 15) {
-        err "Only ${freeGB} GB free on $repoRoot drive; setup needs ~15 GB (torch 2.6 GB, model 4 GB, frontend deps, caches)."
-        $preflightFatal = $true
-    } elseif ($freeGB -lt 25) {
-        warn "${freeGB} GB free on $repoRoot drive. Setup will succeed but you'll be tight on caches; 25 GB+ recommended."
+    if ($env:BONSAI_SKIP_GPU_STACK -eq '1') {
+        # Without GPU stack: no torch (2.6 GB). Only venv + Node.js + model (~6 GB).
+        if ($freeGB -lt 6) {
+            err "Only ${freeGB} GB free on $repoRoot drive; setup needs ~6 GB (model 4 GB, frontend deps, caches)."
+            $preflightFatal = $true
+        } elseif ($freeGB -lt 10) {
+            warn "${freeGB} GB free on $repoRoot drive. Tight on caches without GPU stack; 10 GB+ recommended."
+        } else {
+            info "Free disk on $repoRoot drive: ${freeGB} GB"
+        }
     } else {
-        info "Free disk on $repoRoot drive: ${freeGB} GB"
+        if ($freeGB -lt 15) {
+            err "Only ${freeGB} GB free on $repoRoot drive; setup needs ~15 GB (torch 2.6 GB, model 4 GB, frontend deps, caches)."
+            $preflightFatal = $true
+        } elseif ($freeGB -lt 25) {
+            warn "${freeGB} GB free on $repoRoot drive. Setup will succeed but you'll be tight on caches; 25 GB+ recommended."
+        } else {
+            info "Free disk on $repoRoot drive: ${freeGB} GB"
+        }
     }
 }
 

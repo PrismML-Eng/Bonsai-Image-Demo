@@ -73,15 +73,22 @@ jobs:
             /tmp/serve.log
             .serve-logs/
 
-  linux-x86-setup:
-    name: Linux x86 — setup only (no MLX without GPU)
+  linux-x86:
+    name: Linux x86 — setup + download
     if: >-
       github.event_name == 'workflow_dispatch' ||
       contains(github.event.pull_request.labels.*.name, 'smoke-test')
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+
+      - name: Cache HF model (ternary-gemlite)
+        id: cache-model
+        uses: actions/cache@v4
+        with:
+          path: models/bonsai-image-4B-ternary-gemlite
+          key: ${{ runner.os }}-${{ runner.arch }}-model-ternary-gemlite-v1
 
       - name: Run setup.sh
         env:
@@ -101,3 +108,55 @@ jobs:
           test -x scripts/serve.sh
           test -x scripts/download_model.sh
           ./scripts/download_model.sh --help
+
+      - name: Download ternary-gemlite model (cache miss)
+        if: steps.cache-model.outputs.cache-hit != 'true'
+        run: ./scripts/download_model.sh --model ternary-gemlite
+
+      - name: Verify model files present
+        run: |
+          test -d models/bonsai-image-4B-ternary-gemlite
+          ls -la models/bonsai-image-4B-ternary-gemlite/
+
+  windows-x86:
+    name: Windows x86 — setup + download
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      contains(github.event.pull_request.labels.*.name, 'smoke-test')
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache HF model (ternary-gemlite)
+        id: cache-model
+        uses: actions/cache@v4
+        with:
+          path: models/bonsai-image-4B-ternary-gemlite
+          key: ${{ runner.os }}-${{ runner.arch }}-model-ternary-gemlite-v1
+
+      - name: Run setup.ps1
+        env:
+          SKIP_DOWNLOAD: "1"
+          BONSAI_SKIP_GPU_STACK: "1"
+        shell: powershell
+        run: .\setup.ps1
+
+      - name: Download ternary-gemlite model (cache miss)
+        if: steps.cache-model.outputs.cache-hit != 'true'
+        shell: powershell
+        run: .\scripts\download_model.ps1 ternary-gemlite
+
+      - name: Verify .venv + Python imports
+        shell: powershell
+        run: |
+          .venv\Scripts\python.exe -c "import huggingface_hub; print('huggingface_hub ok')"
+          .venv\Scripts\python.exe -c "import hf_transfer; print('hf_transfer ok')"
+
+      - name: Verify model files present
+        shell: powershell
+        run: |
+          if (-not (Test-Path 'models\bonsai-image-4B-ternary-gemlite')) {
+            Write-Error 'Model directory not found'
+          }
+          Get-ChildItem 'models\bonsai-image-4B-ternary-gemlite' | Select-Object Name, Length
