@@ -6,7 +6,6 @@
 # Two model variants of Bonsai-Image-4B (1.58-bit ternary), one per platform:
 #   ternary-mlx       macOS Apple Silicon — mlx packed 2-bit
 #   ternary-gemlite   Linux CUDA          — gemlite packed 2-bit
-# BONSAI_TOKEN (env): HuggingFace token, needed until public launch.
 
 # Pick the default model for the current platform.
 #   default_model              → ternary on this platform

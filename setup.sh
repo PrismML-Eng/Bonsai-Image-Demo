@@ -4,7 +4,6 @@
 #
 # Usage:
 #   ./setup.sh
-#   BONSAI_TOKEN=hf_... ./setup.sh    (also configures HF token for private models)
 set -e
 
 # ── Resolve paths ──
@@ -353,22 +352,10 @@ for _b in node npm npx corepack; do
 done
 info "node $("$VENV_DIR/bin/node" --version) + npm $("$VENV_DIR/bin/npm" --version) ready in .venv/bin"
 
-# ────────────────────────────────────────────────────
-#  7. Configure HuggingFace token (if provided)
-# ────────────────────────────────────────────────────
-if [ -n "$BONSAI_TOKEN" ]; then
-    step "Logging into HuggingFace ..."
-    "$VENV_DIR/bin/python" -c "
-from huggingface_hub import login
-login(token='$BONSAI_TOKEN', add_to_git_credential=False)
-" 2>/dev/null
-    info "HuggingFace token configured."
-fi
-
 chmod +x "$SCRIPT_DIR"/scripts/*.sh 2>/dev/null || true
 
 # ────────────────────────────────────────────────────
-#  8. Download the default model (skippable)
+#  7. Download the default model (skippable)
 # ────────────────────────────────────────────────────
 #
 # Calls scripts/download_model.sh for the active model (defaults to ternary).
@@ -380,7 +367,7 @@ if [ "${SKIP_DOWNLOAD:-0}" != "1" ]; then
         info "${_variant} model present."
     else
         warn "Model download failed. Retry with:"
-        echo "    BONSAI_TOKEN=hf_... ./scripts/download_model.sh ${_variant}"
+        echo "    ./scripts/download_model.sh ${_variant}"
     fi
 fi
 
