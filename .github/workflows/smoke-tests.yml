@@ -111,8 +111,10 @@ jobs:
         run: |
           .venv/bin/node --version
           .venv/bin/npm --version
-          .venv/bin/python -c "import mflux; print('mflux ok')"
-          .venv/bin/python -c "from backend.pipeline import FluxPipeline, PipelineConfig; print('image-studio backend ok')"
+          .venv/bin/python -c "import huggingface_hub; print('huggingface_hub ok')"
+          .venv/bin/python -c "import hf_transfer; print('hf_transfer ok')"
+          .venv/bin/python -c "import gemlite; print('gemlite ok')"
+          .venv/bin/python -c "import hqq; print('hqq ok')"
 
       - name: Verify scripts
         run: |
