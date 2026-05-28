@@ -136,54 +136,54 @@ try {
 
 $wall = [int]((Get-Date) - $t0).TotalSeconds
 
-$metaScript = @'
-import json, sys
-from datetime import datetime, timezone
-from pathlib import Path
+$MetaDir = Join-Path $DemoDir "outputs\$modelLabel"
+$MetaPath = Join-Path $MetaDir "generations.json"
 
-demo_dir = Path(sys.argv[1]).resolve()
-model, prompt = sys.argv[2], sys.argv[3]
-seed, steps = int(sys.argv[4]), int(sys.argv[5])
-width, height = int(sys.argv[6]), int(sys.argv[7])
-wall_s = float(sys.argv[8])
-output = Path(sys.argv[9]).expanduser().resolve()
+try {
+    if (-not (Test-Path $MetaDir)) {
+        New-Item -ItemType Directory -Path $MetaDir -Force | Out-Null
+    }
 
-meta_dir = demo_dir / "outputs" / model
-meta_dir.mkdir(parents=True, exist_ok=True)
-meta_path = meta_dir / "generations.json"
+    try {
+        $relOutput = Resolve-Path -LiteralPath $Output -ErrorAction Stop | ForEach-Object {
+            $_.Path.Substring($DemoDir.Length).TrimStart('\')
+        }
+    } catch {
+        $relOutput = $Output
+    }
 
-try:
-    rel_output = output.relative_to(demo_dir)
-except ValueError:
-    rel_output = output
+    $record = [pscustomobject]@{
+        timestamp        = (Get-Date).ToUniversalTime().ToString("o")
+        model            = $modelLabel
+        prompt           = $Prompt
+        seed             = $Seed
+        width            = $Width
+        height           = $Height
+        steps            = $Steps
+        duration_seconds = [math]::Round([double]$wall, 3)
+        output           = $relOutput
+    }
 
-record = {
-    "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-    "model": model,
-    "prompt": prompt,
-    "seed": seed,
-    "width": width,
-    "height": height,
-    "steps": steps,
-    "duration_seconds": round(wall_s, 3),
-    "output": str(rel_output),
+    $existing = @()
+    if (Test-Path $MetaPath) {
+        try {
+            $raw = Get-Content -Path $MetaPath -Raw -Encoding UTF8
+            if ($raw -and $raw.Trim()) {
+                $parsed = $raw | ConvertFrom-Json
+                $existing = @($parsed)
+            }
+        } catch {
+            $existing = @()
+        }
+    }
+
+    $updated = @($existing) + @($record)
+    $json = ConvertTo-Json -InputObject @($updated) -Depth 10
+    [System.IO.File]::WriteAllText($MetaPath, $json + "`r`n", [System.Text.Encoding]::UTF8)
+} catch {
+    Write-Warning "generations.json write failed: $_"
+    $MetaPath = ""
 }
-
-if meta_path.exists():
-    try:
-        existing = json.loads(meta_path.read_text())
-        if not isinstance(existing, list):
-            existing = []
-    except json.JSONDecodeError:
-        existing = []
-else:
-    existing = []
-
-existing.append(record)
-meta_path.write_text(json.dumps(existing, indent=2) + "\n")
-print(meta_path)
-'@
-$MetaPath = & $venvPy -c $metaScript $DemoDir $modelLabel $Prompt $Seed $Steps $Width $Height $wall $Output
 
 Write-Host ""
 Write-Host "  prompt: $Prompt"
