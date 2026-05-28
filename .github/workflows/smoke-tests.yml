@@ -47,6 +47,18 @@ jobs:
           test "$(ls outputs/ternary-mlx/*.png 2>/dev/null | wc -l)" -ge 1
           test "$(stat -f%z outputs/ternary-mlx/*.png)" -gt 1024
 
+      - name: Check generated image quality (not all-black / not constant noise)
+        run: |
+          PNG=$(ls outputs/ternary-mlx/*.png | head -1)
+          .venv/bin/python scripts/check_image.py "$PNG"
+
+      - name: Upload generated image (always, for visual inspection)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-generated-image
+          path: outputs/ternary-mlx/*.png
+
       - name: Serve smoke test
         run: |
           set -e
