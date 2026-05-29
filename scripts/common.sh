@@ -93,3 +93,17 @@ is_linux() {
 has_nvidia_gpu() {
     command -v nvidia-smi >/dev/null 2>&1 || command -v nvcc >/dev/null 2>&1
 }
+
+force_native_macos_build_arch() {
+    _os="${1:-$(uname -s)}"
+    _arch="${2:-$(uname -m)}"
+    if [ "$_os" = "Darwin" ] && [ "$_arch" = "arm64" ]; then
+        if [ "${ARCHFLAGS:-}" != "-arch arm64" ]; then
+            [ -n "${ARCHFLAGS:-}" ] && warn "Overriding ARCHFLAGS=$ARCHFLAGS for Apple Silicon builds."
+            export ARCHFLAGS="-arch arm64"
+        fi
+        if [ "${CMAKE_OSX_ARCHITECTURES:-}" != "arm64" ]; then
+            export CMAKE_OSX_ARCHITECTURES="arm64"
+        fi
+    fi
+}
