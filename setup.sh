@@ -322,6 +322,85 @@ _uv_sync_with_retry
 info "mflux installed (versions <= $_pkg_cutoff)."
 
 # ────────────────────────────────────────────────────
+#  5b. M5 NAX metallib fix (Metal-compiler miscompile workaround)
+# ────────────────────────────────────────────────────
+# Xcode 26.5 / metalfe-32023.883 miscompiles MLX's M5-only NAX GEMM shaders,
+# so the locally compiled mlx.metallib produces garbage matmuls on M5+ (Apple
+# GPU gen >= 17) — the "gray-brown noise" bug. The shaders themselves are fine:
+# the prebuilt `mlx-metal` wheel (compiled with a correct SDK) works.
+# See PrismML/Bonsai-Image-Demo#6 and ml-explore/mlx#3586.
+#
+# Gate-first: we detect the miscompile with a bf16 GPU-vs-CPU matmul check and
+# ONLY swap the metallib when it's actually broken. So M4 (NAX path unused) and
+# any machine with a fixed Xcode/Metal toolchain keep their native build
+# untouched — no needless 150 MB download, and the binary variant keeps the
+# fork's custom kernels unless the bug is genuinely present.
+#
+# IMPORTANT — ternary vs binary (only matters when the bug IS detected):
+#   * ternary (2-bit) uses standard upstream kernels, present in the prebuilt
+#     `mlx-metal` wheel, so we can drop the prebuilt metallib in over the
+#     source-built one. Correct + full NAX speed.
+#   * binary (1-bit) needs the fork's CUSTOM 1-bit kernels (quantized*.metal),
+#     which are NOT in the stock wheel — swapping would remove them. So for
+#     binary on M5 we keep the fork metallib and fall back to NAX-off (g16s),
+#     or you must compile the fork metallib with the Xcode 26.4 toolchain.
+# See docs/m5-metal.md.
+_variant="${BONSAI_VARIANT:-ternary}"
+
+# bf16 GPU-vs-CPU matmul check: exit 0 if the GPU kernel is correct (reldiff
+# < 0.1), 1 if it's miscompiled (the M5 NAX bug gives reldiff ~1.1).
+_mlx_matmul_ok() {
+    "$VENV_PY" - <<'PYV'
+import sys, mlx.core as mx
+a = mx.random.normal((64, 512)).astype(mx.bfloat16)
+b = mx.random.normal((512, 512)).astype(mx.bfloat16); mx.eval(a, b)
+with mx.stream(mx.gpu): g = (a @ b); mx.eval(g)
+with mx.stream(mx.cpu): c = (a @ b); mx.eval(c)
+g = g.astype(mx.float32); c = c.astype(mx.float32); mx.eval(g, c)
+rd = float(((g - c) ** 2).sum() ** 0.5) / (float((c ** 2).sum() ** 0.5) + 1e-9)
+sys.exit(0 if rd < 0.1 else 1)
+PYV
+}
+
+if [ "$OS" = "Darwin" ]; then
+    step "Checking GPU matmul kernel (M5 NAX miscompile detection) ..."
+    if _mlx_matmul_ok; then
+        info "GPU matmul correct — native mlx build is good, no metallib swap needed."
+    elif [ "$_variant" = "binary" ]; then
+        warn "M5 NAX miscompile detected, but binary (1-bit) relies on the fork's custom"
+        warn "kernels that the prebuilt metallib lacks — cannot swap. Run with:"
+        warn "  MLX_METAL_GPU_ARCH=applegpu_g16s   (correct, ~2.5-3x slower)"
+        warn "or build the fork metallib with the Xcode 26.4 toolchain (docs/m5-metal.md)."
+    else
+        step "M5 NAX miscompile detected — applying prebuilt mlx-metal metallib fix (ternary) ..."
+        _mlx_ver="$("$VENV_PY" -c 'import re,mlx.core as mx; m=re.match(r"\d+\.\d+\.\d+", mx.__version__); print(m.group() if m else "")' 2>/dev/null)"
+        _mlx_lib="$("$VENV_PY" -c 'import os,mlx; print(os.path.join(os.path.dirname(mlx.__file__), "lib", "mlx.metallib"))' 2>/dev/null)"
+        if [ -n "$_mlx_ver" ] && [ -f "$_mlx_lib" ]; then
+            _tmpd="$(mktemp -d)"
+            if uv pip install --target "$_tmpd" "mlx-metal==$_mlx_ver" >/dev/null 2>&1; then
+                _good="$(find "$_tmpd" -name mlx.metallib 2>/dev/null | head -1)"
+                if [ -n "$_good" ]; then
+                    cp "$_good" "$_mlx_lib"
+                    info "Replaced source-built metallib with prebuilt mlx-metal $_mlx_ver."
+                else
+                    warn "mlx-metal $_mlx_ver had no metallib; skipping."
+                fi
+            else
+                warn "No prebuilt mlx-metal==$_mlx_ver (mlx must be pinned to a released version, e.g. 0.31.2)."
+                warn "M5 users: export MLX_METAL_GPU_ARCH=applegpu_g16s as a fallback (correct, ~2.5-3x slower)."
+            fi
+            rm -rf "$_tmpd"
+            if _mlx_matmul_ok; then
+                info "M5 NAX matmul kernel verified correct after metallib swap."
+            else
+                warn "GPU matmul still incorrect after swap. Set MLX_METAL_GPU_ARCH=applegpu_g16s,"
+                warn "or build mlx's metallib with the Xcode 26.4 toolchain (docs/m5-metal.md)."
+            fi
+        fi
+    fi
+fi
+
+# ────────────────────────────────────────────────────
 #  6. Wire bundled Node.js into .venv/bin
 # ────────────────────────────────────────────────────
 # `nodejs-wheel-binaries` drops node + npm under
