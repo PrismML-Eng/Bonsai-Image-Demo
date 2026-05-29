@@ -1,5 +1,11 @@
 # M5 (Apple GPU gen ≥ 17) gray-noise bug — root cause & fix
 
+> **Most users don't need to read this.** `setup.sh` detects the miscompile
+> automatically and either applies the fix (ternary) or prints the stopgap
+> (binary). This doc is background + reference for when the automatic path
+> doesn't cover you: the binary (1-bit) model, modifying `.metal` kernels, or
+> rebasing the fork.
+
 ## Symptom
 On M5 / M5 Pro / M5 Max, every generation is the same gray-brown noise texture
 (`mean≈116, std≈8.7`) regardless of prompt, seed, size, or steps. M4 and earlier

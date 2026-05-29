@@ -345,7 +345,16 @@ info "mflux installed (versions <= $_pkg_cutoff)."
 #     binary on M5 we keep the fork metallib and fall back to NAX-off (g16s),
 #     or you must compile the fork metallib with the Xcode 26.4 toolchain.
 # See docs/m5-metal.md.
+#
+# The ternary swap is destructive for binary (it strips the fork's 1-bit
+# kernels), and the variant is normally chosen per-invocation at generation
+# time, not via BONSAI_VARIANT at setup time. So besides the env var, we refuse
+# to swap whenever a 1-bit model is already present under models/. Binary users
+# who run setup before downloading a model should export BONSAI_VARIANT=binary.
 _variant="${BONSAI_VARIANT:-ternary}"
+for _bin_model in "$SCRIPT_DIR"/models/bonsai-image-4B-binary-*; do
+    [ -d "$_bin_model" ] && _variant="binary" && break
+done
 
 # bf16 GPU-vs-CPU matmul check: exit 0 if the GPU kernel is correct (reldiff
 # < 0.1), 1 if it's miscompiled (the M5 NAX bug gives reldiff ~1.1).
@@ -382,20 +391,23 @@ if [ "$OS" = "Darwin" ]; then
                 if [ -n "$_good" ]; then
                     cp "$_good" "$_mlx_lib"
                     info "Replaced source-built metallib with prebuilt mlx-metal $_mlx_ver."
+                    # Re-verify only after an actual swap, so the result message
+                    # reflects the swap rather than a path where nothing changed.
+                    if _mlx_matmul_ok; then
+                        info "M5 NAX matmul kernel verified correct after metallib swap."
+                    else
+                        warn "GPU matmul still incorrect after swap. Set MLX_METAL_GPU_ARCH=applegpu_g16s,"
+                        warn "or build mlx's metallib with the Xcode 26.4 toolchain (docs/m5-metal.md)."
+                    fi
                 else
-                    warn "mlx-metal $_mlx_ver had no metallib; skipping."
+                    warn "mlx-metal $_mlx_ver had no metallib; skipping the swap."
+                    warn "M5 users: export MLX_METAL_GPU_ARCH=applegpu_g16s as a fallback (correct, ~2.5-3x slower)."
                 fi
             else
                 warn "No prebuilt mlx-metal==$_mlx_ver (mlx must be pinned to a released version, e.g. 0.31.2)."
                 warn "M5 users: export MLX_METAL_GPU_ARCH=applegpu_g16s as a fallback (correct, ~2.5-3x slower)."
             fi
             rm -rf "$_tmpd"
-            if _mlx_matmul_ok; then
-                info "M5 NAX matmul kernel verified correct after metallib swap."
-            else
-                warn "GPU matmul still incorrect after swap. Set MLX_METAL_GPU_ARCH=applegpu_g16s,"
-                warn "or build mlx's metallib with the Xcode 26.4 toolchain (docs/m5-metal.md)."
-            fi
         fi
     fi
 fi
