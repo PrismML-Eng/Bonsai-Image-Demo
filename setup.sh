@@ -360,11 +360,17 @@ done
 
 # bf16 GPU-vs-CPU matmul check: exit 0 if the GPU kernel is correct (reldiff
 # < 0.1), 1 if it's miscompiled (the M5 NAX bug gives reldiff ~1.1).
+#
+# The probe must be large enough to select the miscompiled M5 NAX GEMM kernel:
+# the bug only manifests at the matmul sizes the model actually uses. A small
+# probe (e.g. 64x512 @ 512x512) reads clean even on a broken build (reldiff
+# ~0), giving a false negative that skips the swap and leaves M5 output gray.
+# 1024x2048 @ 2048x2048 exercises the NAX path (reldiff ~1.1 when miscompiled).
 _mlx_matmul_ok() {
     "$VENV_PY" - <<'PYV'
 import sys, mlx.core as mx
-a = mx.random.normal((64, 512)).astype(mx.bfloat16)
-b = mx.random.normal((512, 512)).astype(mx.bfloat16); mx.eval(a, b)
+a = mx.random.normal((1024, 2048)).astype(mx.bfloat16)
+b = mx.random.normal((2048, 2048)).astype(mx.bfloat16); mx.eval(a, b)
 with mx.stream(mx.gpu): g = (a @ b); mx.eval(g)
 with mx.stream(mx.cpu): c = (a @ b); mx.eval(c)
 g = g.astype(mx.float32); c = c.astype(mx.float32); mx.eval(g, c)
