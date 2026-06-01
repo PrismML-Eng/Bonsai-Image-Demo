@@ -94,6 +94,8 @@ case "$OS" in
         # to a non-existent model dir → 500 ("one missing fails for both").
         _ternary_dir="$DEMO_DIR/models/bonsai-image-4B-ternary-mlx"
         _binary_dir="$DEMO_DIR/models/bonsai-image-4B-binary-mlx"
+        _ternary_present=""
+        _binary_present=""
         [ -d "$_ternary_dir/transformer-packed-mflux" ] && _ternary_present=1
         [ -d "$_binary_dir/transformer-packed-mflux" ] && _binary_present=1
         # The variant being launched must be present; the other is optional.
