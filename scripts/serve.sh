@@ -124,6 +124,15 @@ case "$OS" in
             err "download the model first: ./scripts/download_model.sh ternary"
             exit 1
         fi
+        _supported_families=""
+        [ -n "$_ternary_transformer" ] && _supported_families="bonsai-ternary"
+        if [ -n "$_binary_transformer" ]; then
+            if [ -n "$_supported_families" ]; then
+                _supported_families="$_supported_families,bonsai-binary"
+            else
+                _supported_families="bonsai-binary"
+            fi
+        fi
         ;;
 esac
 
@@ -178,6 +187,7 @@ if [ "$OS" = "Linux" ]; then
     # swap (ensure_backend only reloads the transformer).
     (cd "$DEMO_DIR" \
         && env MFLUX_STUDIO_GPU_DEFAULT_BACKEND="$_default_backend" \
+               BONSAI_SUPPORTED_FAMILIES="$_supported_families" \
                MFLUX_STUDIO_GPU_TERNARY_TRANSFORMER_PATH="$_ternary_transformer_path" \
                MFLUX_STUDIO_GPU_BINARY_TRANSFORMER_PATH="$_binary_transformer_path" \
                MFLUX_STUDIO_GPU_TEXT_ENCODER_PATH="$_model_dir/text_encoder-hqq-4bit" \

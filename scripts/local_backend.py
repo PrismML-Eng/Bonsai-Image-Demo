@@ -82,12 +82,13 @@ def _backends() -> dict:
     split off the trailing `-mlx` or `-gemlite` for the kind and treat
     the prefix as the model family.
 
-    Always advertises both Bonsai variants (ternary + binary) so the
-    picker is symmetric with the Mac backend, which reports the same
-    list. backend_gpu only loads ONE pipeline at runtime (the one named
-    by MFLUX_STUDIO_GPU_DEFAULT_BACKEND); switching the dropdown to the
-    other family doesn't reload weights, and /generate will still serve
-    from the loaded pipeline. To actually swap which variant is loaded,
+    By default advertises both Bonsai variants (ternary + binary). When
+    serve.sh sets BONSAI_SUPPORTED_FAMILIES, advertise only those
+    downloaded families so the frontend doesn't offer unavailable arms.
+    backend_gpu only loads ONE pipeline at runtime (the one named by
+    MFLUX_STUDIO_GPU_DEFAULT_BACKEND); switching the dropdown to another
+    family doesn't reload weights, and /generate will still serve from
+    the loaded pipeline. To actually swap which variant is loaded,
     restart the backend with a different BONSAI_VARIANT.
     """
     arm = os.environ.get("MFLUX_STUDIO_GPU_DEFAULT_BACKEND", "bonsai-ternary-gemlite")
@@ -97,9 +98,18 @@ def _backends() -> dict:
         default_family, kind = arm[: -len("-mlx")], "mlx"
     else:
         default_family, kind = arm, "gemlite"
+    allowed_families = {"bonsai-ternary", "bonsai-binary"}
+    configured_families = [
+        family.strip()
+        for family in os.environ.get("BONSAI_SUPPORTED_FAMILIES", "").split(",")
+        if family.strip() in allowed_families
+    ]
+    supported_families = configured_families or ["bonsai-ternary", "bonsai-binary"]
+    if default_family not in supported_families:
+        default_family = supported_families[0]
     return {
         "kind": kind,
-        "supported_families": ["bonsai-ternary", "bonsai-binary"],
+        "supported_families": supported_families,
         "default_family": default_family,
         "healthy": True,
         "reason": None,
