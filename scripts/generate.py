@@ -257,6 +257,16 @@ def _find_subdir(root: Path, *hints: str) -> Path:
     return matches[0]
 
 
+def _resolve_gemlite_transformer_dir(variant: str) -> Path:
+    """Resolve a variant's gemlite transformer dir, with an absolute fallback."""
+    model_root = MODELS_DIR / f"bonsai-image-4B-{variant}-gemlite"
+    expected_suffix = {"ternary": "int2", "binary": "int1"}[variant]
+    hits = sorted(model_root.glob("transformer-gemlite-*"), key=lambda p: len(p.name), reverse=True)
+    if hits:
+        return hits[0]
+    return model_root / f"transformer-gemlite-{expected_suffix}"
+
+
 def generate_linux(
     args: argparse.Namespace, seed: int, width: int, height: int
 ) -> tuple[bytes, dict[str, float]]:
@@ -270,20 +280,16 @@ def generate_linux(
     backend_id, _ = MODELS[args.model]
     model_root = require_model_dir(args.model)
     text_encoder_dir = _find_subdir(model_root, "text_encoder")
-    # GpuPipeline keeps a separate transformer path per backend (binary /
-    # ternary / bf16). Routing the model_root via the kwarg that doesn't
-    # match `backend_id` leaves the active backend's slot at its hardcoded
-    # /root/models/... default, which doesn't exist locally.
-    transformer_kwarg = {
-        "bonsai-binary-gemlite":   "binary_transformer_path",
-        "bonsai-ternary-gemlite":  "ternary_transformer_path",
-    }[backend_id]
+    # GpuPipeline validates both gemlite transformer slots at init. Set
+    # both kwargs so it never falls back to the package's /root/models/*
+    # defaults on local runs.
     # HF repo layout nests the Qwen tokenizer inside the text-encoder dir
     # (matches DEFAULT_TOKENIZER_PATH in pipeline_gpu.py). Derive instead of
     # scanning model_root, where no top-level `tokenizer/` exists.
     pipeline = GpuPipeline(
         backend=backend_id,
-        **{transformer_kwarg: str(_find_subdir(model_root, "transformer"))},
+        ternary_transformer_path=str(_resolve_gemlite_transformer_dir("ternary")),
+        binary_transformer_path=str(_resolve_gemlite_transformer_dir("binary")),
         text_encoder_path=str(text_encoder_dir),
         vae_path=str(_find_subdir(model_root, "vae")),
         tokenizer_path=str(text_encoder_dir / "tokenizer"),

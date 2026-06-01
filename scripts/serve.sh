@@ -108,6 +108,11 @@ case "$OS" in
         _binary_dir="$DEMO_DIR/models/bonsai-image-4B-binary-gemlite"
         _ternary_transformer=$(ls -d "$_ternary_dir"/transformer-gemlite-* 2>/dev/null | head -1)
         _binary_transformer=$(ls -d "$_binary_dir"/transformer-gemlite-* 2>/dev/null | head -1)
+        # Always populate BOTH env vars. If one variant isn't downloaded,
+        # point at where it would live under models/ so backend_gpu reports
+        # a local actionable path instead of treating it as "unset".
+        _ternary_transformer_path="${_ternary_transformer:-$_ternary_dir/transformer-gemlite-int2}"
+        _binary_transformer_path="${_binary_transformer:-$_binary_dir/transformer-gemlite-int1}"
         # The variant being launched must be present; the other is optional.
         if [ "$BONSAI_VARIANT" = "binary" ] && [ -z "$_binary_transformer" ]; then
             err "no transformer-gemlite-* subdir found under $_binary_dir"
@@ -173,8 +178,8 @@ if [ "$OS" = "Linux" ]; then
     # swap (ensure_backend only reloads the transformer).
     (cd "$DEMO_DIR" \
         && env MFLUX_STUDIO_GPU_DEFAULT_BACKEND="$_default_backend" \
-               ${_ternary_transformer:+MFLUX_STUDIO_GPU_TERNARY_TRANSFORMER_PATH="$_ternary_transformer"} \
-               ${_binary_transformer:+MFLUX_STUDIO_GPU_BINARY_TRANSFORMER_PATH="$_binary_transformer"} \
+               MFLUX_STUDIO_GPU_TERNARY_TRANSFORMER_PATH="$_ternary_transformer_path" \
+               MFLUX_STUDIO_GPU_BINARY_TRANSFORMER_PATH="$_binary_transformer_path" \
                MFLUX_STUDIO_GPU_TEXT_ENCODER_PATH="$_model_dir/text_encoder-hqq-4bit" \
                MFLUX_STUDIO_GPU_VAE_PATH="$_model_dir/vae" \
                MFLUX_STUDIO_GPU_TOKENIZER_PATH="$_model_dir/text_encoder-hqq-4bit/tokenizer" \
