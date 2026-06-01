@@ -42,6 +42,12 @@ async def _backends(force_disable: bool = False) -> dict:
     `force_disable` arrives via query string on the upstream route's
     signature; harmless on Mac (no GPU probe to disable) — accepted
     only so the route signature matches the frontend's expectations.
+
+    By default advertises both Bonsai variants (ternary + binary). When
+    serve.sh sets BONSAI_SUPPORTED_FAMILIES, advertise only those
+    downloaded families so the picker can't offer a variant whose
+    weights aren't on disk — selecting an absent arm routes /generate to
+    a non-existent model dir and 500s. Mirrors scripts/local_backend.py.
     """
     arm = os.environ.get("MFLUX_STUDIO_DEFAULT_BACKEND", "bonsai-ternary-mlx")
     if arm.endswith("-mlx"):
@@ -50,9 +56,18 @@ async def _backends(force_disable: bool = False) -> dict:
         default_family = arm[: -len("-gemlite")]
     else:
         default_family = arm
+    allowed_families = {"bonsai-ternary", "bonsai-binary"}
+    configured_families = [
+        family.strip()
+        for family in os.environ.get("BONSAI_SUPPORTED_FAMILIES", "").split(",")
+        if family.strip() in allowed_families
+    ]
+    supported_families = configured_families or ["bonsai-ternary", "bonsai-binary"]
+    if default_family not in supported_families:
+        default_family = supported_families[0]
     return {
         "kind": "mlx",
-        "supported_families": ["bonsai-ternary", "bonsai-binary"],
+        "supported_families": supported_families,
         "default_family": default_family,
         "healthy": True,
         "reason": None,

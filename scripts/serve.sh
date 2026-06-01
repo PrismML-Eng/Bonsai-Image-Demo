@@ -86,6 +86,36 @@ case "$OS" in
         # shim pattern.
         _backend_module="scripts.local_backend_mac:app"
         _model_dir="$DEMO_DIR/models/bonsai-image-4B-${BONSAI_VARIANT}-mlx"
+
+        # Advertise only the variants actually on disk (mirrors the Linux
+        # fix in #16). A variant is "downloaded" when its packed mflux
+        # transformer is present. Without this, /backends offers both arms
+        # even when one is missing; picking the absent one routes /generate
+        # to a non-existent model dir → 500 ("one missing fails for both").
+        _ternary_dir="$DEMO_DIR/models/bonsai-image-4B-ternary-mlx"
+        _binary_dir="$DEMO_DIR/models/bonsai-image-4B-binary-mlx"
+        [ -d "$_ternary_dir/transformer-packed-mflux" ] && _ternary_present=1
+        [ -d "$_binary_dir/transformer-packed-mflux" ] && _binary_present=1
+        # The variant being launched must be present; the other is optional.
+        if [ "$BONSAI_VARIANT" = "binary" ] && [ -z "$_binary_present" ]; then
+            err "no transformer-packed-mflux subdir found under $_binary_dir"
+            err "download the model first: ./scripts/download_model.sh binary"
+            exit 1
+        fi
+        if [ "$BONSAI_VARIANT" = "ternary" ] && [ -z "$_ternary_present" ]; then
+            err "no transformer-packed-mflux subdir found under $_ternary_dir"
+            err "download the model first: ./scripts/download_model.sh ternary"
+            exit 1
+        fi
+        _supported_families=""
+        [ -n "$_ternary_present" ] && _supported_families="bonsai-ternary"
+        if [ -n "$_binary_present" ]; then
+            if [ -n "$_supported_families" ]; then
+                _supported_families="$_supported_families,bonsai-binary"
+            else
+                _supported_families="bonsai-binary"
+            fi
+        fi
         ;;
     Linux)
         # The Linux path swaps to image-studio's GPU backend (gemlite kernels)
@@ -216,6 +246,7 @@ else
     # scripts.local_backend_mac shim (which overrides /backends).
     # No env flag needed for that — see _backend_module above.
     MFLUX_STUDIO_DEFAULT_BACKEND="$_default_backend" \
+    BONSAI_SUPPORTED_FAMILIES="$_supported_families" \
     MFLUX_STUDIO_BAKED_MODEL_PATH="$DEMO_DIR/models/bonsai-image-4B-ternary-mlx" \
     MFLUX_STUDIO_BAKED_BINARY_MODEL_PATH="$DEMO_DIR/models/bonsai-image-4B-binary-mlx" \
     MFLUX_STUDIO_TE_4BIT=true \
