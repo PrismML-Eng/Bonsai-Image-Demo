@@ -394,7 +394,7 @@ if [ "$OS" = "Darwin" ]; then
     else
         step "M5 NAX miscompile detected — applying prebuilt mlx-metal metallib fix (ternary) ..."
         _mlx_ver="$("$VENV_PY" -c 'import re,mlx.core as mx; m=re.match(r"\d+\.\d+\.\d+", mx.__version__); print(m.group() if m else "")' 2>/dev/null)"
-        _mlx_lib="$("$VENV_PY" -c 'import os,mlx; print(os.path.join(os.path.dirname(mlx.__file__), "lib", "mlx.metallib"))' 2>/dev/null)"
+        _mlx_lib="$("$VENV_PY" -c 'import os,mlx.core as mx; print(os.path.join(os.path.dirname(mx.__file__), "lib", "mlx.metallib"))' 2>/dev/null)"
         if [ -n "$_mlx_ver" ] && [ -f "$_mlx_lib" ]; then
             _tmpd="$(mktemp -d)"
             if uv pip install --target "$_tmpd" "mlx-metal==$_mlx_ver" >/dev/null 2>&1; then
