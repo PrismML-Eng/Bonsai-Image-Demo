@@ -3,8 +3,10 @@ from __future__ import annotations
 
 import argparse
 import gc
+import hashlib
 import json
 import os
+import platform
 import sys
 import time
 from pathlib import Path
@@ -37,29 +39,84 @@ def mem_gib() -> float:
     return 0.0
 
 
-def load_quantized_text_encoder(path: Path) -> nn.Module:
+TEXT_ENCODER_DTYPE = torch.bfloat16
+CPU_INFERENCE_DTYPE = torch.float16
+
+
+def cpu_supports_bf16() -> bool:
+    try:
+        cpuinfo = Path("/proc/cpuinfo").read_text()
+    except OSError:
+        return False
+    return " bf16" in f" {cpuinfo.lower()} "
+
+
+def resolve_inference_dtype(name: str) -> torch.dtype:
+    if name == "auto":
+        # On this ARM CPU path, fp16 transformer inference benchmarks much
+        # worse than fp32. Prefer bf16 only with native support; otherwise use
+        # float32 as the CPU default.
+        return torch.bfloat16 if cpu_supports_bf16() else torch.float32
+    if name == "bfloat16":
+        return torch.bfloat16
+    if name == "float16":
+        return torch.float16
+    if name == "float32":
+        return torch.float32
+    raise ValueError(f"unsupported dtype {name}")
+
+
+def resolve_text_encoder_dtype(name: str) -> torch.dtype:
+    if name == "auto":
+        # On CPUs without native bf16 support, float16 text-encoder inference
+        # can take dramatically longer than float32 for the short-prompt path
+        # we care about here. Prefer bf16 only when the ISA is real; otherwise
+        # stay in float32 and cast the final prompt embeds down afterward.
+        return torch.bfloat16 if cpu_supports_bf16() else torch.float32
+    return resolve_inference_dtype(name)
+
+
+def prompt_cache_key(
+    prompt: str,
+    model_root: Path,
+    max_sequence_length: int,
+    *,
+    include_inference_dtype: bool = True,
+) -> str:
+    payload = {
+        "prompt": prompt,
+        "model_root": str(model_root.resolve()),
+        "max_sequence_length": int(max_sequence_length),
+        "text_encoder_dtype": str(TEXT_ENCODER_DTYPE),
+    }
+    if include_inference_dtype:
+        payload["dtype"] = str(CPU_INFERENCE_DTYPE)
+    return hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()[:16]
+
+
+def load_quantized_text_encoder(path: Path, dtype: torch.dtype) -> nn.Module:
     log("loading quantized text encoder")
     model = AutoHQQHFModel.from_quantized(str(path), device="cpu")
-    return model.to(torch.bfloat16)
+    return model.to(dtype)
 
 
-def dequantize_text_encoder(model: nn.Module) -> nn.Module:
+def dequantize_text_encoder(model: nn.Module, dtype: torch.dtype) -> nn.Module:
     count = 0
     start = time.time()
     for name, mod in list(model.named_modules()):
         if isinstance(mod, HQQLinear):
             parent_name, _, child_name = name.rpartition(".")
             parent = model.get_submodule(parent_name) if parent_name else model
-            weight = mod.dequantize().to(torch.bfloat16)
+            weight = mod.dequantize().to(dtype)
             dense = nn.Linear(
                 mod.in_features,
                 mod.out_features,
                 bias=mod.bias is not None,
-                dtype=torch.bfloat16,
+                dtype=dtype,
             )
             dense.weight = nn.Parameter(weight, requires_grad=False)
             if mod.bias is not None:
-                dense.bias = nn.Parameter(mod.bias.to(torch.bfloat16), requires_grad=False)
+                dense.bias = nn.Parameter(mod.bias.to(dtype), requires_grad=False)
             setattr(parent, child_name, dense)
             count += 1
             if count % 20 == 0:
@@ -70,22 +127,59 @@ def dequantize_text_encoder(model: nn.Module) -> nn.Module:
 
 
 @torch.no_grad()
-def encode_prompt(prompt: str, model_root: Path, *, max_sequence_length: int) -> torch.Tensor:
+def encode_prompt(
+    prompt: str,
+    model_root: Path,
+    *,
+    max_sequence_length: int,
+    cache_dir: Path | None = None,
+) -> torch.Tensor:
+    cache_path: Path | None = None
+    if cache_dir is not None:
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        cache_path = cache_dir / f"{prompt_cache_key(prompt, model_root, max_sequence_length)}.pt"
+        if cache_path.exists():
+            log(f"loading cached prompt embeds from {cache_path}")
+            return torch.load(cache_path, map_location="cpu")
+        compat_cache_path = cache_dir / (
+            f"{prompt_cache_key(prompt, model_root, max_sequence_length, include_inference_dtype=False)}.pt"
+        )
+        if compat_cache_path.exists():
+            log(f"loading compatible cached prompt embeds from {compat_cache_path}")
+            return torch.load(compat_cache_path, map_location="cpu").to(CPU_INFERENCE_DTYPE)
+
     text_path = model_root / "text_encoder-hqq-4bit"
     tok_path = text_path / "tokenizer"
-    text_encoder = dequantize_text_encoder(load_quantized_text_encoder(text_path))
+    text_encoder = dequantize_text_encoder(
+        load_quantized_text_encoder(text_path, TEXT_ENCODER_DTYPE),
+        TEXT_ENCODER_DTYPE,
+    )
     tokenizer = AutoTokenizer.from_pretrained(str(tok_path))
     messages = [{"role": "user", "content": prompt}]
     text = tokenizer.apply_chat_template(
         messages, tokenize=False, add_generation_prompt=True, enable_thinking=False
     )
+    full_inputs = tokenizer(text, return_tensors="pt")
+    effective_max_length = min(max_sequence_length, int(full_inputs["input_ids"].shape[1]))
     inputs = tokenizer(
         text,
         return_tensors="pt",
         padding="max_length",
         truncation=True,
-        max_length=max_sequence_length,
+        max_length=effective_max_length,
     )
+    full_tokens = int(full_inputs["input_ids"].shape[1])
+    used_tokens = int(inputs["attention_mask"][0].sum().item())
+    if full_tokens > max_sequence_length:
+        log(
+            f"prompt truncated from {full_tokens} to {max_sequence_length} tokens; "
+            "increase --max-seq for faithful prompt encoding"
+        )
+    else:
+        log(
+            f"prompt tokenized to {used_tokens} tokens with effective_seq={effective_max_length} "
+            f"within max_seq={max_sequence_length}"
+        )
     log("encoding prompt")
     start = time.time()
     output = text_encoder(
@@ -99,11 +193,21 @@ def encode_prompt(prompt: str, model_root: Path, *, max_sequence_length: int) ->
     prompt_embeds = (
         prompt_embeds.permute(0, 2, 1, 3)
         .reshape(batch_size, seq_len, num_channels * hidden_dim)
-        .to(torch.bfloat16)
+        .to(CPU_INFERENCE_DTYPE)
         .cpu()
         .contiguous()
     )
     log(f"prompt encoded shape={tuple(prompt_embeds.shape)} rss={mem_gib():.2f} GiB elapsed={time.time()-start:.1f}s")
+    if cache_dir is not None:
+        assert cache_path is not None
+        torch.save(prompt_embeds, cache_path)
+        log(f"saved prompt embeds cache {cache_path}")
+        compat_cache_path = cache_dir / (
+            f"{prompt_cache_key(prompt, model_root, max_sequence_length, include_inference_dtype=False)}.pt"
+        )
+        if compat_cache_path != cache_path:
+            torch.save(prompt_embeds, compat_cache_path)
+            log(f"saved compatible prompt embeds cache {compat_cache_path}")
     del output, text_encoder, tokenizer, inputs
     gc.collect()
     return prompt_embeds
@@ -133,7 +237,12 @@ def expand_group_metadata(meta: torch.Tensor, target_shape: tuple[int, int], gro
     return meta.T.repeat_interleave(group_size, dim=1)
 
 
-def decode_gemlite_weight(layer_state: dict[str, torch.Tensor], target_shape: tuple[int, int], group_size: int) -> torch.Tensor:
+def decode_gemlite_weight(
+    layer_state: dict[str, torch.Tensor],
+    target_shape: tuple[int, int],
+    group_size: int,
+    dtype: torch.dtype,
+) -> torch.Tensor:
     w_q = layer_state["W_q"]
     scales = layer_state["scales"].to(torch.float32)
     zeros = layer_state["zeros"].to(torch.float32)
@@ -149,7 +258,7 @@ def decode_gemlite_weight(layer_state: dict[str, torch.Tensor], target_shape: tu
     chunks = unpack_cols(w_q, rows, cols).to(torch.float32)
     scale_full = expand_group_metadata(scales, target_shape, group_size)
     zero_full = expand_group_metadata(zeros, target_shape, group_size)
-    return (chunks * scale_full + zero_full).to(torch.bfloat16)
+    return (chunks * scale_full + zero_full).to(dtype)
 
 
 def load_dense_transformer(model_root: Path) -> nn.Module:
@@ -161,7 +270,10 @@ def load_dense_transformer(model_root: Path) -> nn.Module:
     group_size = int(qcfg.get("group_size", 128))
 
     log("building transformer shell")
-    model = Flux2Transformer2DModel.from_config(cfg).to(torch.float16)
+    # The gemlite GPU backend requires fp16 activations, but this CPU fallback
+    # is a dense PyTorch model. Use bf16 only on CPUs that can execute it
+    # efficiently; otherwise stay in fp32.
+    model = Flux2Transformer2DModel.from_config(cfg).to(CPU_INFERENCE_DTYPE)
     state = torch.load(str(path / "state_dict.pt"), map_location="cpu")
     buckets: dict[str, dict[str, torch.Tensor]] = {}
     remainder: dict[str, torch.Tensor] = {}
@@ -185,14 +297,19 @@ def load_dense_transformer(model_root: Path) -> nn.Module:
         parent_fqn, _, child_name = fqn.rpartition(".")
         parent = model.get_submodule(parent_fqn) if parent_fqn else model
         child = getattr(parent, child_name)
-        weight = decode_gemlite_weight(layer_state, tuple(child.weight.shape), group_size).to(torch.float16)
+        weight = decode_gemlite_weight(
+            layer_state,
+            tuple(child.weight.shape),
+            group_size,
+            CPU_INFERENCE_DTYPE,
+        ).to(CPU_INFERENCE_DTYPE)
         child.weight = nn.Parameter(weight, requires_grad=False)
         if "bias" in layer_state and layer_state["bias"] is not None:
-            child.bias = nn.Parameter(layer_state["bias"].to(torch.float16), requires_grad=False)
+            child.bias = nn.Parameter(layer_state["bias"].to(CPU_INFERENCE_DTYPE), requires_grad=False)
         if idx % 10 == 0 or idx == len(items):
             gc.collect()
             log(f"transformer dense layers: {idx}/{len(items)} rss={mem_gib():.2f} GiB elapsed={time.time()-start:.1f}s")
-    model._inference_dtype = torch.float16  # type: ignore[attr-defined]
+    model._inference_dtype = CPU_INFERENCE_DTYPE  # type: ignore[attr-defined]
     return model.eval()
 
 
@@ -200,11 +317,32 @@ def load_unpacked_transformer(transformer_dir: Path) -> nn.Module:
     log(f"loading unpacked transformer from {transformer_dir}")
     model = Flux2Transformer2DModel.from_pretrained(
         str(transformer_dir),
-        torch_dtype=torch.bfloat16,
+        torch_dtype=CPU_INFERENCE_DTYPE,
         local_files_only=True,
     ).to("cpu")
-    model._inference_dtype = torch.bfloat16  # type: ignore[attr-defined]
+    model._inference_dtype = CPU_INFERENCE_DTYPE  # type: ignore[attr-defined]
     return model.eval()
+
+
+def resolve_transformer_dir(model_root: Path, explicit_transformer_dir: str | None) -> Path | None:
+    if explicit_transformer_dir:
+        return Path(explicit_transformer_dir)
+
+    direct = model_root / "transformer"
+    if direct.is_dir():
+        log(f"using unpacked transformer at {direct}")
+        return direct
+
+    sibling_name = model_root.name.replace("gemlite", "unpacked")
+    sibling = model_root.parent / sibling_name / "transformer"
+    if sibling.is_dir():
+        log(
+            "using sibling unpacked transformer instead of GemLite dense reconstruction: "
+            f"{sibling}"
+        )
+        return sibling
+
+    return None
 
 
 def build_scheduler():
@@ -234,7 +372,7 @@ def decode_latents_to_image(
     log(f"{log_prefix} decode start rss={mem_gib():.2f} GiB")
     latents = Flux2Pipeline._unpack_latents_with_ids(latents, latent_ids)
     log(f"{log_prefix} latents unpacked rss={mem_gib():.2f} GiB elapsed={time.time()-decode_start:.1f}s")
-    latents = latents.to(device=vae_device, dtype=torch.bfloat16)
+    latents = latents.to(device=vae_device, dtype=CPU_INFERENCE_DTYPE)
     bn_mean = vae.bn.running_mean.view(1, -1, 1, 1).to(latents.device, latents.dtype)
     bn_std = torch.sqrt(vae.bn.running_var.view(1, -1, 1, 1) + vae.config.batch_norm_eps).to(latents.device, latents.dtype)
     latents = latents * bn_std + bn_mean
@@ -329,6 +467,9 @@ def run_diffusion(
 
 
 def main() -> int:
+    global CPU_INFERENCE_DTYPE
+    global TEXT_ENCODER_DTYPE
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--prompt", required=True)
     parser.add_argument("--output", required=True)
@@ -338,16 +479,48 @@ def main() -> int:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--guidance", type=float, default=1.0)
     parser.add_argument("--max-seq", type=int, default=512)
+    parser.add_argument(
+        "--dtype",
+        choices=("auto", "float16", "bfloat16", "float32"),
+        default="auto",
+        help="Main transformer/VAE/latent dtype. auto prefers bf16 only with native support, otherwise float32 on CPU.",
+    )
+    parser.add_argument(
+        "--text-encoder-dtype",
+        choices=("auto", "float16", "bfloat16", "float32"),
+        default="auto",
+        help="Text encoder dtype. auto prefers bf16 only with native support, otherwise float32 for faster CPU prompt encoding.",
+    )
+    parser.add_argument("--threads", type=int)
+    parser.add_argument("--interop-threads", type=int)
+    parser.add_argument("--prompt-cache-dir")
     parser.add_argument("--model-root", default=str(REPO_ROOT / "models" / "bonsai-image-4B-ternary-gemlite"))
     parser.add_argument("--transformer-dir")
+    parser.add_argument(
+        "--gemlite-dense",
+        action="store_true",
+        help="force the experimental GemLite-to-dense CPU transformer path",
+    )
+    parser.add_argument(
+        "--allow-sub128",
+        action="store_true",
+        help="allow exploratory renders below 128x128; useful for performance sweeps, but less reliable semantically",
+    )
     parser.add_argument("--step-output-dir")
     args = parser.parse_args()
 
     os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+    if args.threads is not None:
+        torch.set_num_threads(args.threads)
+    if args.interop_threads is not None:
+        torch.set_num_interop_threads(args.interop_threads)
+    CPU_INFERENCE_DTYPE = resolve_inference_dtype(args.dtype)
+    TEXT_ENCODER_DTYPE = resolve_text_encoder_dtype(args.text_encoder_dtype)
     model_root = Path(args.model_root)
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     step_output_dir = Path(args.step_output_dir) if args.step_output_dir else None
+    prompt_cache_dir = Path(args.prompt_cache_dir) if args.prompt_cache_dir else None
     if step_output_dir is not None:
         step_output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -358,19 +531,38 @@ def main() -> int:
     # unpack + VAE decode path. 64x64 therefore gives only a 4x4 packed grid:
     # useful for coarse sanity checks, but too small for reliable geometry
     # tests like quadrants or thin lines. Use 128x128+ for structure debugging.
-    if args.height < 64 or args.width < 64:
-        raise SystemExit("height and width must be at least 64 for CPU debug renders")
+    min_dim = 96 if args.allow_sub128 else 128
+    if args.height < min_dim or args.width < min_dim:
+        raise SystemExit(
+            f"height and width must be at least {min_dim} "
+            f"for {'exploratory' if args.allow_sub128 else 'meaningful'} CPU renders"
+        )
 
-    prompt_embeds = encode_prompt(args.prompt, model_root, max_sequence_length=args.max_seq)
+    total_start = time.time()
+    log(
+        f"cpu={platform.machine()} threads={torch.get_num_threads()} "
+        f"interop={torch.get_num_interop_threads()} "
+        f"text_dtype={TEXT_ENCODER_DTYPE} dtype={CPU_INFERENCE_DTYPE}"
+    )
+    prompt_embeds = encode_prompt(
+        args.prompt,
+        model_root,
+        max_sequence_length=args.max_seq,
+        cache_dir=prompt_cache_dir,
+    )
     log(f"after prompt encode rss={mem_gib():.2f} GiB")
 
     log("loading VAE")
-    vae = AutoencoderKLFlux2.from_pretrained(str(model_root / "vae"), torch_dtype=torch.bfloat16).to("cpu").eval()
+    vae = AutoencoderKLFlux2.from_pretrained(
+        str(model_root / "vae"),
+        torch_dtype=CPU_INFERENCE_DTYPE,
+    ).to("cpu").eval()
     log(f"vae ready rss={mem_gib():.2f} GiB")
 
+    transformer_dir = None if args.gemlite_dense else resolve_transformer_dir(model_root, args.transformer_dir)
     transformer = (
-        load_unpacked_transformer(Path(args.transformer_dir))
-        if args.transformer_dir
+        load_unpacked_transformer(transformer_dir)
+        if transformer_dir is not None
         else load_dense_transformer(model_root)
     )
     log(f"transformer ready rss={mem_gib():.2f} GiB")
@@ -388,6 +580,7 @@ def main() -> int:
     )
     image.save(output_path)
     log(f"saved {output_path}")
+    log(f"total elapsed={time.time()-total_start:.1f}s")
     return 0
 
 
