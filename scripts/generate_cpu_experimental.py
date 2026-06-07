@@ -21,7 +21,9 @@ from PIL import Image
 from transformers import AutoTokenizer
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str((REPO_ROOT / "vendor" / "image-studio").resolve()))
+IMAGE_STUDIO_VENDOR = (REPO_ROOT / "vendor" / "image-studio").resolve()
+if IMAGE_STUDIO_VENDOR.exists():
+    sys.path.insert(0, str(IMAGE_STUDIO_VENDOR))
 
 from backend_gpu.diffusion_klein import _mflux_empirical_mu  # noqa: E402
 
@@ -32,10 +34,13 @@ def log(msg: str) -> None:
 
 
 def mem_gib() -> float:
-    with open("/proc/self/status") as fh:
-        for line in fh:
-            if line.startswith("VmRSS:"):
-                return int(line.split()[1]) / 1024 / 1024
+    try:
+        with open("/proc/self/status") as fh:
+            for line in fh:
+                if line.startswith("VmRSS:"):
+                    return int(line.split()[1]) / 1024 / 1024
+    except OSError:
+        return 0.0
     return 0.0
 
 
@@ -133,6 +138,8 @@ def encode_prompt(
     *,
     max_sequence_length: int,
     cache_dir: Path | None = None,
+    text_encoder: nn.Module | None = None,
+    tokenizer: AutoTokenizer | None = None,
 ) -> torch.Tensor:
     cache_path: Path | None = None
     if cache_dir is not None:
@@ -148,13 +155,18 @@ def encode_prompt(
             log(f"loading compatible cached prompt embeds from {compat_cache_path}")
             return torch.load(compat_cache_path, map_location="cpu").to(CPU_INFERENCE_DTYPE)
 
-    text_path = model_root / "text_encoder-hqq-4bit"
-    tok_path = text_path / "tokenizer"
-    text_encoder = dequantize_text_encoder(
-        load_quantized_text_encoder(text_path, TEXT_ENCODER_DTYPE),
-        TEXT_ENCODER_DTYPE,
-    )
-    tokenizer = AutoTokenizer.from_pretrained(str(tok_path))
+    owns_text_encoder = text_encoder is None
+    owns_tokenizer = tokenizer is None
+    if text_encoder is None or tokenizer is None:
+        text_path = model_root / "text_encoder-hqq-4bit"
+        tok_path = text_path / "tokenizer"
+        if text_encoder is None:
+            text_encoder = dequantize_text_encoder(
+                load_quantized_text_encoder(text_path, TEXT_ENCODER_DTYPE),
+                TEXT_ENCODER_DTYPE,
+            )
+        if tokenizer is None:
+            tokenizer = AutoTokenizer.from_pretrained(str(tok_path))
     messages = [{"role": "user", "content": prompt}]
     text = tokenizer.apply_chat_template(
         messages, tokenize=False, add_generation_prompt=True, enable_thinking=False
@@ -208,7 +220,11 @@ def encode_prompt(
         if compat_cache_path != cache_path:
             torch.save(prompt_embeds, compat_cache_path)
             log(f"saved compatible prompt embeds cache {compat_cache_path}")
-    del output, text_encoder, tokenizer, inputs
+    del output, inputs
+    if owns_text_encoder:
+        del text_encoder
+    if owns_tokenizer:
+        del tokenizer
     gc.collect()
     return prompt_embeds
 
@@ -475,7 +491,7 @@ def main() -> int:
     parser.add_argument("--output", required=True)
     parser.add_argument("--height", type=int, default=256)
     parser.add_argument("--width", type=int, default=256)
-    parser.add_argument("--steps", type=int, default=1)
+    parser.add_argument("--steps", type=int, default=4)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--guidance", type=float, default=1.0)
     parser.add_argument("--max-seq", type=int, default=512)
@@ -507,9 +523,16 @@ def main() -> int:
         help="allow exploratory renders below 128x128; useful for performance sweeps, but less reliable semantically",
     )
     parser.add_argument("--step-output-dir")
+    parser.add_argument(
+        "--prompt-cache-only",
+        action="store_true",
+        help="encode and cache the prompt embeds, then exit without loading VAE/transformer or rendering",
+    )
     args = parser.parse_args()
 
     os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+    if args.steps <= 0:
+        raise SystemExit("--steps must be a positive integer")
     if args.threads is not None:
         torch.set_num_threads(args.threads)
     if args.interop_threads is not None:
@@ -551,6 +574,10 @@ def main() -> int:
         cache_dir=prompt_cache_dir,
     )
     log(f"after prompt encode rss={mem_gib():.2f} GiB")
+    if args.prompt_cache_only:
+        log("prompt-cache-only requested; skipping model load and render")
+        log(f"total elapsed={time.time()-total_start:.1f}s")
+        return 0
 
     log("loading VAE")
     vae = AutoencoderKLFlux2.from_pretrained(

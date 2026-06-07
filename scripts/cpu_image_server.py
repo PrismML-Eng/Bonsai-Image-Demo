@@ -133,14 +133,22 @@ def generate(req: GenerateRequest) -> dict[str, object]:
     output_path = Path(req.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
+    cache_key = gen.prompt_cache_key(
+        req.prompt,
+        STATE.model_root,
+        req.max_seq,
+        include_inference_dtype=False,
+    )
+    cache_path = STATE.prompt_cache_dir / f"{cache_key}.pt"
+    if not cache_path.exists():
+        raise HTTPException(
+            status_code=409,
+            detail="prompt cache miss; uncached prompts are disabled on this host for the warm server route",
+        )
+
     with STATE.lock:
         start = time.time()
-        prompt_embeds = gen.encode_prompt(
-            req.prompt,
-            STATE.model_root,
-            max_sequence_length=req.max_seq,
-            cache_dir=STATE.prompt_cache_dir,
-        )
+        prompt_embeds = gen.torch.load(cache_path, map_location="cpu").to(gen.CPU_INFERENCE_DTYPE)
         prompt_seconds = time.time() - start
         image = gen.run_diffusion(
             STATE.transformer,

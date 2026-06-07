@@ -47,6 +47,7 @@ Example command shape used for successful CPU runs:
 ```bash
 python scripts/generate_cpu_experimental.py \
   --prompt 'ostrich' \
+  --output outputs/cpu-ostrich.png \
   --height 128 \
   --width 128 \
   --steps 4 \

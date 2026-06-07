@@ -1,1 +1,0 @@
-scripts: add warm CPU server benchmark helpers
