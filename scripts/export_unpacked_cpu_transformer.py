@@ -42,6 +42,11 @@ def main() -> int:
         action="store_true",
         help="Allow writing into an existing output directory.",
     )
+    parser.add_argument(
+        "--max-shard-size",
+        default="20GB",
+        help="Passed through to save_pretrained(); default is large enough to force a single monolithic safetensors file for this 4B CPU export.",
+    )
     args = parser.parse_args()
 
     model_root = Path(args.model_root)
@@ -66,7 +71,11 @@ def main() -> int:
     )
     model = gen.load_dense_transformer(model_root)
     output_dir.mkdir(parents=True, exist_ok=True)
-    model.save_pretrained(str(output_dir), safe_serialization=True)
+    model.save_pretrained(
+        str(output_dir),
+        safe_serialization=True,
+        max_shard_size=args.max_shard_size,
+    )
     gen.log(f"saved unpacked transformer to {output_dir} elapsed={time.time()-start:.1f}s")
     return 0
 

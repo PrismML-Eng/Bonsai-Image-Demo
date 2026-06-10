@@ -62,6 +62,74 @@ Run the preflight check before trying to render:
 ./scripts/preflight_cpu_experimental.sh
 ```
 
+## Verified clean-room walkthrough
+
+The sequence below was rerun in a fresh checkout on this ARM64 CPU-only host on
+June 10, 2026.
+
+Fresh checkout:
+
+```bash
+git clone --branch dv/cpu-image-bringup-report \
+  git@github.com:DenisValeev/Bonsai-Image-Demo.git \
+  /tmp/Bonsai-image-demo-cpu
+cd /tmp/Bonsai-image-demo-cpu
+```
+
+Install dependencies and download the GemLite model:
+
+```bash
+BONSAI_ALLOW_UNSUPPORTED=1 ./setup.sh
+```
+
+Export the unpacked transformer and check prerequisites:
+
+```bash
+./scripts/export_unpacked_cpu_transformer.sh
+./scripts/preflight_cpu_experimental.sh
+```
+
+Try the low-memory CPU ostrich render:
+
+```bash
+./scripts/generate_cpu_low_memory.sh \
+  --prompt "ostrich" \
+  --output outputs/cpu-ostrich.png \
+  --height 128 \
+  --width 128 \
+  --steps 4 \
+  --seed 7
+```
+
+### Important current limitation
+
+That exact fresh-export path still produced a semantically wrong tiled/noisy
+image, even though the render completed successfully.
+
+The current working workaround is to replace the freshly exported unpacked
+transformer with a known-good monolithic checkpoint, then rerun the same ostrich
+command:
+
+```bash
+rm -rf models/bonsai-image-4B-ternary-unpacked/transformer
+mkdir -p models/bonsai-image-4B-ternary-unpacked/transformer
+cp /path/to/known-good/config.json \
+  models/bonsai-image-4B-ternary-unpacked/transformer/
+cp /path/to/known-good/diffusion_pytorch_model.safetensors \
+  models/bonsai-image-4B-ternary-unpacked/transformer/
+
+./scripts/generate_cpu_low_memory.sh \
+  --prompt "ostrich" \
+  --output outputs/cpu-ostrich.png \
+  --height 128 \
+  --width 128 \
+  --steps 4 \
+  --seed 7
+```
+
+With that validated monolithic checkpoint in place, the fresh checkout produced
+a coherent `128x128` ostrich.
+
 ## Low-memory flow
 
 For low-memory CPU runs, keep prompt encoding separate from VAE/transformer loading. This avoids overlapping text-encoder memory with the render process.
