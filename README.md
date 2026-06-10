@@ -28,6 +28,8 @@
 
 Generate images with Bonsai on Apple Silicon (macOS via [mflux](https://github.com/filipstrand/mflux) + MLX), NVIDIA GPU (Linux via [gemlite](https://github.com/dropbox/gemlite) + [HQQ](https://github.com/dropbox/hqq) kernels in `backend_gpu`), or NVIDIA GPU on **Windows natively** (same gemlite/HQQ stack via [triton-windows](https://github.com/triton-lang/triton-windows), no WSL2 needed).
 
+Experimental CPU bring-up is documented in [docs/cpu-experimental.md](docs/cpu-experimental.md). On macOS, the default model download is MLX; the CPU runner instead needs the GemLite/HQQ artifacts from `./scripts/download_model.sh --model ternary-gemlite`.
+
 ## Quick start
 
 **macOS / Linux:**
@@ -57,6 +59,14 @@ If something doesn't work on Windows, see [scripts/windows.md](scripts/windows.m
 ```
 
 Ternary (1.58-bit) is the recommended demo variant — better quality at a modest size increase. Binary (1-bit) is the smaller / lighter sibling.
+
+For the experimental CPU path, do not rely on the platform default. Download the GemLite artifact set explicitly, then export the unpacked transformer once:
+
+```bash
+./scripts/download_model.sh --model ternary-gemlite
+./scripts/export_unpacked_cpu_transformer.sh
+./scripts/preflight_cpu_experimental.sh
+```
 
 ## Configuration
 
@@ -147,6 +157,7 @@ Bonsai-image-demo/
   models/
     bonsai-image-4B-ternary-mlx/       # macOS only (default)
     bonsai-image-4B-ternary-gemlite/   # Linux / Windows (default)
+    bonsai-image-4B-ternary-unpacked/  # experimental CPU path; exported locally
     bonsai-image-4B-binary-mlx/        # macOS only   (optional, smaller 1-bit)
     bonsai-image-4B-binary-gemlite/    # Linux / Windows (optional, smaller 1-bit)
   outputs/
@@ -157,8 +168,11 @@ Bonsai-image-demo/
     common.sh                          # shared bash helpers
     common.ps1                         # shared PowerShell helpers
     download_model.sh / .ps1
+    export_unpacked_cpu_transformer.sh
+    preflight_cpu_experimental.sh
     serve.sh        / .ps1               # primary: backend + frontend studio
     send_request.sh / .ps1               # HTTP client to a running serve
     generate.sh     / .ps1               # one-shot CLI (cold-start every call)
+    generate_cpu_low_memory.sh           # experimental two-process CPU wrapper
     generate.py                          # Python entry behind generate.{sh,ps1}
 ```

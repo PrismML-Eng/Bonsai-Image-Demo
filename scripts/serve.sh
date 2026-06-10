@@ -29,6 +29,7 @@ ensure_venv "$DEMO_DIR"
 : "${BACKEND_PORT:=8000}"
 : "${FRONTEND_PORT:=3000}"
 : "${STUDIO_DIR:=$DEMO_DIR/vendor/image-studio}"
+: "${BONSAI_ALLOW_UNSUPPORTED:=0}"
 
 # ── platform check ──
 OS="$(uname -s)"
@@ -45,9 +46,14 @@ case "$OS" in
         if has_nvidia_gpu; then
             info "Platform: Linux + NVIDIA GPU — backend_gpu (gemlite/HQQ on CUDA)"
         else
-            warn "Platform: Linux without NVIDIA GPU — backend_gpu needs CUDA, generation will fail."
-            echo "       Install CUDA toolkit: https://developer.nvidia.com/cuda-downloads"
-            echo "       Continuing anyway."
+            if [ "$BONSAI_ALLOW_UNSUPPORTED" = "1" ]; then
+                warn "Platform: Linux without NVIDIA GPU — backend_gpu needs CUDA, generation will fail."
+                echo "       BONSAI_ALLOW_UNSUPPORTED=1 is set, so serve.sh will continue anyway."
+            else
+                err "Platform: Linux without NVIDIA GPU — backend_gpu cannot serve locally on this host."
+                echo "       Set BONSAI_ALLOW_UNSUPPORTED=1 only if you intentionally want the broken path for inspection."
+                exit 1
+            fi
         fi
         ;;
     *)

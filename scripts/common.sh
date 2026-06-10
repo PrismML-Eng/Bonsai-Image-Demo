@@ -94,6 +94,15 @@ has_nvidia_gpu() {
     command -v nvidia-smi >/dev/null 2>&1 || command -v nvcc >/dev/null 2>&1
 }
 
+require_linux_nvidia_gpu() {
+    if ! has_nvidia_gpu; then
+        err "Linux generation requires an NVIDIA GPU/driver/CUDA on this repo's gemlite path."
+        echo "       This host does not expose nvidia-smi or nvcc."
+        echo "       If you only need the files installed, use BONSAI_ALLOW_UNSUPPORTED=1 during setup."
+        exit 1
+    fi
+}
+
 force_native_macos_build_arch() {
     _os="${1:-$(uname -s)}"
     _arch="${2:-$(uname -m)}"

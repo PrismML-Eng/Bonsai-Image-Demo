@@ -7,6 +7,9 @@ dependencies = [
     # install. `uv sync` drops platform-specific wheels into .venv/bin/{node,npm}.
     "nodejs-wheel-binaries>=22",
     "huggingface-hub",
+    # Experimental CPU bring-up dequantizes the HQQ text encoder on both macOS
+    # and Linux, so keep hqq available outside the Linux CUDA path too.
+    "hqq",
     # Rust-based downloader: parallel HTTP range requests per file, often
     # saturates the link where the default python `requests` backend stalls
     # around 10-20 MB/s. Gated on by HF_HUB_ENABLE_HF_TRANSFER=1 (set in
@@ -18,7 +21,6 @@ dependencies = [
     # Linux GPU path: gemlite kernels via backend_gpu — no mlx, no mflux.
     "prism-image-studio-backend-gpu ; sys_platform == 'linux'",
     "gemlite ; sys_platform == 'linux'",
-    "hqq ; sys_platform == 'linux'",
 ]
 
 [tool.uv]
