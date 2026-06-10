@@ -28,7 +28,7 @@ class GenerateRequest(BaseModel):
     steps: int
     seed: int
     guidance: float = 1.0
-    max_seq: int = 64
+    max_seq: int = 512
 
 
 class ServerState:
@@ -59,6 +59,7 @@ class ServerState:
         self.started_at = time.time()
         self.vae = None
         self.transformer = None
+        self.outputs_root = (REPO_ROOT / "outputs").resolve()
 
 
 STATE = ServerState()
@@ -75,6 +76,7 @@ def configure_runtime() -> None:
 def load_models() -> None:
     configure_runtime()
     STATE.prompt_cache_dir.mkdir(parents=True, exist_ok=True)
+    STATE.outputs_root.mkdir(parents=True, exist_ok=True)
     STATE.vae = gen.AutoencoderKLFlux2.from_pretrained(
         str(STATE.model_root / "vae"),
         torch_dtype=gen.CPU_INFERENCE_DTYPE,
@@ -105,6 +107,22 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 
+def resolve_output_path(raw_output: str) -> Path:
+    candidate = Path(raw_output)
+    if candidate.is_absolute():
+        resolved = candidate.resolve()
+    else:
+        resolved = (STATE.outputs_root / candidate).resolve()
+    try:
+        resolved.relative_to(STATE.outputs_root)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"output must stay within {STATE.outputs_root}",
+        ) from exc
+    return resolved
+
+
 @app.get("/healthz")
 def healthz() -> dict[str, object]:
     return {
@@ -130,7 +148,7 @@ def generate(req: GenerateRequest) -> dict[str, object]:
     if req.width % 32 != 0 or req.height % 32 != 0:
         raise HTTPException(status_code=400, detail="height and width must be multiples of 32")
 
-    output_path = Path(req.output)
+    output_path = resolve_output_path(req.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     cache_key = gen.prompt_cache_key(

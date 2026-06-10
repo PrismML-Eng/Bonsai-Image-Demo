@@ -38,8 +38,8 @@ def build_inputs(
     text_ids = Flux2Pipeline._prepare_text_ids(prompt_embeds).to(transformer_device)
 
     in_channels_latents = transformer.config.in_channels // 4
-    h_lat = width // 8
-    w_lat = height // 8
+    h_lat = height // 8
+    w_lat = width // 8
     noise_shape = (1, in_channels_latents * 4, h_lat // 2, w_lat // 2)
     generator = torch.Generator(device="cpu").manual_seed(seed)
     latents_4d = torch.randn(noise_shape, generator=generator, dtype=torch.float32).to(
