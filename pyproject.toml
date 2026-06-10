@@ -7,8 +7,9 @@ dependencies = [
     # install. `uv sync` drops platform-specific wheels into .venv/bin/{node,npm}.
     "nodejs-wheel-binaries>=22",
     "huggingface-hub",
-    # Experimental CPU bring-up dequantizes the HQQ text encoder on both macOS
-    # and Linux, so keep hqq available outside the Linux CUDA path too.
+    # Experimental CPU bring-up uses HQQ on both macOS and Linux to load and
+    # dequantize the text-encoder checkpoint before CPU inference switches to
+    # dense modules, so keep it available outside the Linux CUDA path too.
     "hqq",
     # Rust-based downloader: parallel HTTP range requests per file, often
     # saturates the link where the default python `requests` backend stalls
