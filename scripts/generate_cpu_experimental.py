@@ -58,10 +58,10 @@ def cpu_supports_bf16() -> bool:
 
 def resolve_inference_dtype(name: str) -> torch.dtype:
     if name == "auto":
-        # On this ARM CPU path, fp16 transformer inference benchmarks much
-        # worse than fp32. Prefer bf16 only with native support; otherwise use
-        # float32 as the CPU default.
-        return torch.bfloat16 if cpu_supports_bf16() else torch.float32
+        # The known-good CPU bring-up path used bf16 end-to-end. Keep that
+        # behavior for semantic parity with the validated unpacked-transformer
+        # renders; callers can still force float32 explicitly for experiments.
+        return torch.bfloat16
     if name == "bfloat16":
         return torch.bfloat16
     if name == "float16":
@@ -73,11 +73,10 @@ def resolve_inference_dtype(name: str) -> torch.dtype:
 
 def resolve_text_encoder_dtype(name: str) -> torch.dtype:
     if name == "auto":
-        # On CPUs without native bf16 support, float16 text-encoder inference
-        # can take dramatically longer than float32 for the short-prompt path
-        # we care about here. Prefer bf16 only when the ISA is real; otherwise
-        # stay in float32 and cast the final prompt embeds down afterward.
-        return torch.bfloat16 if cpu_supports_bf16() else torch.float32
+        # Match the original CPU bring-up numerics. This path is slower on
+        # CPUs without native bf16 support, but it preserves the reference
+        # prompt-embedding regime that produced the validated images.
+        return torch.bfloat16
     return resolve_inference_dtype(name)
 
 
@@ -172,13 +171,12 @@ def encode_prompt(
         messages, tokenize=False, add_generation_prompt=True, enable_thinking=False
     )
     full_inputs = tokenizer(text, return_tensors="pt")
-    effective_max_length = min(max_sequence_length, int(full_inputs["input_ids"].shape[1]))
     inputs = tokenizer(
         text,
         return_tensors="pt",
         padding="max_length",
         truncation=True,
-        max_length=effective_max_length,
+        max_length=max_sequence_length,
     )
     full_tokens = int(full_inputs["input_ids"].shape[1])
     used_tokens = int(inputs["attention_mask"][0].sum().item())
@@ -188,10 +186,7 @@ def encode_prompt(
             "increase --max-seq for faithful prompt encoding"
         )
     else:
-        log(
-            f"prompt tokenized to {used_tokens} tokens with effective_seq={effective_max_length} "
-            f"within max_seq={max_sequence_length}"
-        )
+        log(f"prompt tokenized to {used_tokens} tokens padded to max_seq={max_sequence_length}")
     log("encoding prompt")
     start = time.time()
     output = text_encoder(
