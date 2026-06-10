@@ -18,6 +18,7 @@ from diffusers.pipelines.flux2.pipeline_flux2 import retrieve_timesteps
 from hqq.core.quantize import HQQLinear
 from hqq.models.hf.base import AutoHQQHFModel
 from PIL import Image
+from safetensors.torch import load_file as load_safetensors_file
 from transformers import AutoTokenizer
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -58,10 +59,10 @@ def cpu_supports_bf16() -> bool:
 
 def resolve_inference_dtype(name: str) -> torch.dtype:
     if name == "auto":
-        # The known-good CPU bring-up path used bf16 end-to-end. Keep that
-        # behavior for semantic parity with the validated unpacked-transformer
-        # renders; callers can still force float32 explicitly for experiments.
-        return torch.bfloat16
+        # On CPUs without native bf16 support, prefer float32 for the unpacked
+        # transformer path. This matches the historically successful red-circle
+        # and ostrich validations on this host.
+        return torch.bfloat16 if cpu_supports_bf16() else torch.float32
     if name == "bfloat16":
         return torch.bfloat16
     if name == "float16":
@@ -73,10 +74,7 @@ def resolve_inference_dtype(name: str) -> torch.dtype:
 
 def resolve_text_encoder_dtype(name: str) -> torch.dtype:
     if name == "auto":
-        # Match the original CPU bring-up numerics. This path is slower on
-        # CPUs without native bf16 support, but it preserves the reference
-        # prompt-embedding regime that produced the validated images.
-        return torch.bfloat16
+        return torch.bfloat16 if cpu_supports_bf16() else torch.float32
     return resolve_inference_dtype(name)
 
 
@@ -326,6 +324,25 @@ def load_dense_transformer(model_root: Path) -> nn.Module:
 
 def load_unpacked_transformer(transformer_dir: Path) -> nn.Module:
     log(f"loading unpacked transformer from {transformer_dir}")
+    monolith_path = transformer_dir / "diffusion_pytorch_model.safetensors"
+    sharded_index_path = transformer_dir / "diffusion_pytorch_model.safetensors.index.json"
+    if monolith_path.is_file() and sharded_index_path.is_file():
+        # This repo currently has both an older monolithic safetensors payload
+        # and a newer sharded index in the same unpacked directory. Prefer the
+        # monolith because it is the last semantically validated CPU payload.
+        log(f"loading monolithic unpacked transformer weights from {monolith_path}")
+        config = Flux2Transformer2DModel.load_config(str(transformer_dir))
+        model = Flux2Transformer2DModel.from_config(config)
+        state_dict = load_safetensors_file(str(monolith_path), device="cpu")
+        missing, unexpected = model.load_state_dict(state_dict, strict=False)
+        if missing or unexpected:
+            raise RuntimeError(
+                "monolithic transformer state_dict mismatch: "
+                f"missing={missing[:8]} unexpected={unexpected[:8]}"
+            )
+        model = model.to(device="cpu", dtype=CPU_INFERENCE_DTYPE)
+        model._inference_dtype = CPU_INFERENCE_DTYPE  # type: ignore[attr-defined]
+        return model.eval()
     model = Flux2Transformer2DModel.from_pretrained(
         str(transformer_dir),
         torch_dtype=CPU_INFERENCE_DTYPE,
