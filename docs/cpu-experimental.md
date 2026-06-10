@@ -65,7 +65,7 @@ Run the preflight check before trying to render:
 ## Verified clean-room walkthrough
 
 The sequence below was rerun in a fresh checkout on this ARM64 CPU-only host on
-June 10, 2026.
+June 10, 2026, and it produced a semantically correct final ostrich PNG.
 
 Fresh checkout:
 
@@ -89,7 +89,7 @@ Export the unpacked transformer and check prerequisites:
 ./scripts/preflight_cpu_experimental.sh
 ```
 
-Try the low-memory CPU ostrich render:
+Render a final-only `128x128` ostrich:
 
 ```bash
 ./scripts/generate_cpu_low_memory.sh \
@@ -101,34 +101,13 @@ Try the low-memory CPU ostrich render:
   --seed 7
 ```
 
-### Important current limitation
+Expected result:
 
-That exact fresh-export path still produced a semantically wrong tiled/noisy
-image, even though the render completed successfully.
+- `outputs/cpu-ostrich.png` is a coherent `128x128` ostrich, not tiled/noisy
+  garbage.
 
-The current working workaround is to replace the freshly exported unpacked
-transformer with a known-good monolithic checkpoint, then rerun the same ostrich
-command:
-
-```bash
-rm -rf models/bonsai-image-4B-ternary-unpacked/transformer
-mkdir -p models/bonsai-image-4B-ternary-unpacked/transformer
-cp /path/to/known-good/config.json \
-  models/bonsai-image-4B-ternary-unpacked/transformer/
-cp /path/to/known-good/diffusion_pytorch_model.safetensors \
-  models/bonsai-image-4B-ternary-unpacked/transformer/
-
-./scripts/generate_cpu_low_memory.sh \
-  --prompt "ostrich" \
-  --output outputs/cpu-ostrich.png \
-  --height 128 \
-  --width 128 \
-  --steps 4 \
-  --seed 7
-```
-
-With that validated monolithic checkpoint in place, the fresh checkout produced
-a coherent `128x128` ostrich.
+The export script now writes a monolithic safetensors payload by default. That
+matches the loader path used for the validated CPU bring-up flow.
 
 ## Low-memory flow
 

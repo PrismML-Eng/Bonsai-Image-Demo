@@ -236,16 +236,6 @@ def unpack_cols(w_q: torch.Tensor, rows: int, cols: int) -> torch.Tensor:
     ).reshape(rows, cols)
 
 
-def expand_group_metadata(meta: torch.Tensor, target_shape: tuple[int, int], group_size: int) -> torch.Tensor:
-    rows, cols = target_shape
-    expected_shape = (cols // group_size, rows)
-    if tuple(meta.shape) != expected_shape:
-        raise RuntimeError(
-            f"Unhandled gemlite metadata shape meta={tuple(meta.shape)} target={target_shape} group_size={group_size}"
-        )
-    return meta.T.repeat_interleave(group_size, dim=1)
-
-
 def decode_gemlite_weight(
     layer_state: dict[str, torch.Tensor],
     target_shape: tuple[int, int],
@@ -254,20 +244,26 @@ def decode_gemlite_weight(
 ) -> torch.Tensor:
     w_q = layer_state["W_q"]
     scales = layer_state["scales"].to(torch.float32)
-    zeros = layer_state["zeros"].to(torch.float32)
-    metadata = [int(v) for v in layer_state["metadata"].tolist()]
     rows, cols = target_shape
-    expected_wq_shape = (cols // 4, rows)
-    if tuple(w_q.shape) != expected_wq_shape:
-        raise RuntimeError(
-            f"Unhandled gemlite packing W_q={tuple(w_q.shape)} target={target_shape} expected={expected_wq_shape}"
-        )
-    if metadata[10] != 4:
-        raise RuntimeError(f"Unhandled gemlite W_group_mode={metadata[10]}")
-    chunks = unpack_cols(w_q, rows, cols).to(torch.float32)
-    scale_full = expand_group_metadata(scales, target_shape, group_size)
-    zero_full = expand_group_metadata(zeros, target_shape, group_size)
-    return (chunks * scale_full + zero_full).to(dtype)
+    if w_q.shape[0] * 4 == rows and w_q.shape[1] == cols:
+        chunks = unpack_rows(w_q, rows, cols)
+        scale_full = scales.repeat_interleave(group_size, dim=0)[:rows, :]
+        return ((chunks.to(torch.float32) - 1.0) * scale_full).to(dtype)
+    if w_q.shape[0] == rows and w_q.shape[1] * 4 == cols:
+        chunks = unpack_cols(w_q, rows, cols)
+        scale_full = scales.repeat_interleave(group_size, dim=0)[:cols, :].T
+        return ((chunks.to(torch.float32) - 1.0) * scale_full).to(dtype)
+    if w_q.shape[0] * 4 == cols and w_q.shape[1] == rows:
+        chunks = unpack_rows(w_q, cols, rows)
+        scale_full = scales.repeat_interleave(group_size, dim=0)[:cols, :]
+        return ((chunks.to(torch.float32) - 1.0) * scale_full).T.to(dtype)
+    if w_q.shape[0] == cols and w_q.shape[1] * 4 == rows:
+        chunks = unpack_cols(w_q, cols, rows)
+        scale_full = scales.repeat_interleave(group_size, dim=0)[:rows, :].T
+        return ((chunks.to(torch.float32) - 1.0) * scale_full).T.to(dtype)
+    raise RuntimeError(
+        f"Unhandled gemlite packing W_q={tuple(w_q.shape)} target={target_shape} scales={tuple(scales.shape)}"
+    )
 
 
 def load_dense_transformer(model_root: Path) -> nn.Module:
