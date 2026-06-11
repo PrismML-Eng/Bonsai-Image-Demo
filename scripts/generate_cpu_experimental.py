@@ -86,6 +86,7 @@ def prompt_cache_key(
     include_inference_dtype: bool = True,
 ) -> str:
     payload = {
+        "cache_format": "trimmed-prompt-v1",
         "prompt": prompt,
         "model_root": str(model_root.resolve()),
         "max_sequence_length": int(max_sequence_length),
@@ -169,22 +170,26 @@ def encode_prompt(
         messages, tokenize=False, add_generation_prompt=True, enable_thinking=False
     )
     full_inputs = tokenizer(text, return_tensors="pt")
+    actual_token_count = int(full_inputs["input_ids"].shape[1])
+    effective_max_length = min(max_sequence_length, actual_token_count)
     inputs = tokenizer(
         text,
         return_tensors="pt",
         padding="max_length",
         truncation=True,
-        max_length=max_sequence_length,
+        max_length=effective_max_length,
     )
-    full_tokens = int(full_inputs["input_ids"].shape[1])
     used_tokens = int(inputs["attention_mask"][0].sum().item())
-    if full_tokens > max_sequence_length:
+    if actual_token_count > max_sequence_length:
         log(
-            f"prompt truncated from {full_tokens} to {max_sequence_length} tokens; "
+            f"prompt truncated from {actual_token_count} to {max_sequence_length} tokens; "
             "increase --max-seq for faithful prompt encoding"
         )
     else:
-        log(f"prompt tokenized to {used_tokens} tokens padded to max_seq={max_sequence_length}")
+        log(
+            f"prompt tokenized to {used_tokens} tokens; "
+            f"effective_seq={effective_max_length} within max_seq={max_sequence_length}"
+        )
     log("encoding prompt")
     start = time.time()
     output = text_encoder(
