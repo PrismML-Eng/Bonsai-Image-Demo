@@ -41,13 +41,19 @@ The experimental CPU runner expects all of these to exist:
 
 ## Setup
 
-`hqq` is part of the CPU path because the text encoder is stored as HQQ weights. `./setup.sh` now installs it on macOS and Linux.
+`hqq` is part of the CPU path because the text encoder is stored as HQQ weights. The CPU export/render scripts also import `diffusers`, `safetensors`, and `transformers` directly, so `./setup.sh` needs to leave those in the venv on macOS as well as Linux.
 
 If you are on a machine without NVIDIA, let setup continue without claiming the GPU path will work:
 
 ```bash
 BONSAI_ALLOW_UNSUPPORTED=1 SKIP_DOWNLOAD=1 ./setup.sh
 ./scripts/download_model.sh --model ternary-gemlite
+```
+
+If you already ran setup before this dependency fix landed, refresh the venv once:
+
+```bash
+uv sync
 ```
 
 Then export the unpacked transformer once:

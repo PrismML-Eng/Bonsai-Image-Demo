@@ -27,7 +27,7 @@ Checks the experimental CPU bring-up prerequisites:
   - <model-root>/vae
   - <model-root>/transformer-gemlite-int2
   - <unpacked-root>/transformer
-  - importable Python package: hqq
+  - importable Python packages: hqq, diffusers, safetensors, transformers
 EOF
             exit 0
             ;;
@@ -57,11 +57,21 @@ check_dir "$MODEL_ROOT/vae" "VAE"
 check_dir "$MODEL_ROOT/transformer-gemlite-int2" "GemLite transformer"
 check_dir "$UNPACKED_ROOT/transformer" "unpacked transformer"
 
-step "Checking Python CPU dependency: hqq ..."
-if "$DEMO_DIR/.venv/bin/python" -c 'import hqq' >/dev/null 2>&1; then
-    info "Python package available: hqq"
+step "Checking unpacked transformer files ..."
+if [ -s "$UNPACKED_ROOT/transformer/diffusion_pytorch_model.safetensors" ] || \
+   [ -s "$UNPACKED_ROOT/transformer/diffusion_pytorch_model.safetensors.index.json" ] || \
+   find "$UNPACKED_ROOT/transformer" -maxdepth 1 -type f -name 'diffusion_pytorch_model-*.safetensors' -size +0c | grep -q .; then
+    info "Found non-empty unpacked transformer weights"
 else
-    err "Python package missing: hqq"
+    err "Unpacked transformer directory exists but does not contain non-empty saved weights"
+    missing=1
+fi
+
+step "Checking Python CPU dependencies ..."
+if "$DEMO_DIR/.venv/bin/python" -c 'import diffusers, hqq, safetensors, transformers' >/dev/null 2>&1; then
+    info "Python packages available: diffusers, hqq, safetensors, transformers"
+else
+    err "Missing one or more Python packages: diffusers, hqq, safetensors, transformers"
     missing=1
 fi
 
@@ -70,6 +80,9 @@ if [ "$missing" -ne 0 ]; then
     warn "CPU bring-up is incomplete."
     echo "  Download the GemLite model artifacts explicitly:"
     echo "    ./scripts/download_model.sh --model ternary-gemlite"
+    echo ""
+    echo "  If export fails with ModuleNotFoundError on a fresh macOS setup, refresh the venv:"
+    echo "    uv sync"
     echo ""
     echo "  Export the unpacked transformer once:"
     echo "    ./scripts/export_unpacked_cpu_transformer.sh"

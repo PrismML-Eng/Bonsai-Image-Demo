@@ -11,6 +11,13 @@ dependencies = [
     # dequantize the text-encoder checkpoint before CPU inference switches to
     # dense modules, so keep it available outside the Linux CUDA path too.
     "hqq",
+    # Experimental CPU export/render also imports diffusers + transformers
+    # directly on macOS, independent of the MLX studio path.
+    "accelerate",
+    "diffusers>=0.38.0",
+    "safetensors",
+    "sentencepiece",
+    "transformers",
     # Rust-based downloader: parallel HTTP range requests per file, often
     # saturates the link where the default python `requests` backend stalls
     # around 10-20 MB/s. Gated on by HF_HUB_ENABLE_HF_TRANSFER=1 (set in
