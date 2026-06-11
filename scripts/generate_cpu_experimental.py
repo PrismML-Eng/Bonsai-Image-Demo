@@ -113,6 +113,19 @@ def prompt_cache_key(
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()[:16]
 
 
+def prompt_cache_path(
+    cache_dir: Path,
+    prompt: str,
+    model_root: Path,
+    max_sequence_length: int,
+    *,
+    include_inference_dtype: bool = True,
+) -> Path:
+    return cache_dir / (
+        f"{prompt_cache_key(prompt, model_root, max_sequence_length, include_inference_dtype=include_inference_dtype)}.pt"
+    )
+
+
 def load_quantized_text_encoder(path: Path, dtype: torch.dtype) -> nn.Module:
     log("loading quantized text encoder")
     model = AutoHQQHFModel.from_quantized(str(path), device="cpu")
@@ -158,10 +171,20 @@ def encode_prompt(
     cache_path: Path | None = None
     if cache_dir is not None:
         cache_dir.mkdir(parents=True, exist_ok=True)
-        cache_path = cache_dir / f"{prompt_cache_key(prompt, model_root, max_sequence_length)}.pt"
+        cache_path = prompt_cache_path(cache_dir, prompt, model_root, max_sequence_length)
         if cache_path.exists():
             log(f"loading cached prompt embeds from {cache_path}")
             return torch.load(cache_path, map_location="cpu")
+        compat_cache_path = prompt_cache_path(
+            cache_dir,
+            prompt,
+            model_root,
+            max_sequence_length,
+            include_inference_dtype=False,
+        )
+        if compat_cache_path.exists():
+            log(f"loading compatible cached prompt embeds from {compat_cache_path}")
+            return torch.load(compat_cache_path, map_location="cpu").to(CPU_INFERENCE_DTYPE)
 
     owns_text_encoder = text_encoder is None
     owns_tokenizer = tokenizer is None
@@ -222,6 +245,16 @@ def encode_prompt(
         assert cache_path is not None
         torch.save(prompt_embeds, cache_path)
         log(f"saved prompt embeds cache {cache_path}")
+        compat_cache_path = prompt_cache_path(
+            cache_dir,
+            prompt,
+            model_root,
+            max_sequence_length,
+            include_inference_dtype=False,
+        )
+        if compat_cache_path != cache_path:
+            torch.save(prompt_embeds, compat_cache_path)
+            log(f"saved compatible prompt embeds cache {compat_cache_path}")
     del output, inputs
     if owns_text_encoder:
         del text_encoder

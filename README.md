@@ -63,10 +63,22 @@ Ternary (1.58-bit) is the recommended demo variant — better quality at a modes
 For the experimental CPU path, do not rely on the platform default. Download the GemLite artifact set explicitly, then export the unpacked transformer once:
 
 ```bash
+BONSAI_ALLOW_UNSUPPORTED=1 SKIP_DOWNLOAD=1 ./setup.sh
 ./scripts/download_model.sh --model ternary-gemlite
 ./scripts/export_unpacked_cpu_transformer.sh
 ./scripts/preflight_cpu_experimental.sh
+./scripts/generate_cpu_low_memory.sh \
+  --prompt "ostrich" \
+  --output outputs/cpu-ostrich-128.png \
+  --height 128 \
+  --width 128 \
+  --steps 4 \
+  --seed 7
 ```
+
+Run `preflight_cpu_experimental.sh` after export. A fresh checkout is expected
+to fail preflight before `export_unpacked_cpu_transformer.sh` creates
+`models/bonsai-image-4B-ternary-unpacked/transformer`.
 
 ## Configuration
 

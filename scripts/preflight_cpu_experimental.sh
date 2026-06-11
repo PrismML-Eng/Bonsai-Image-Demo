@@ -67,6 +67,30 @@ else
     missing=1
 fi
 
+step "Checking CPU export layout marker ..."
+if [ -s "$UNPACKED_ROOT/transformer/cpu_decode_layout_version.json" ]; then
+    if "$DEMO_DIR/.venv/bin/python" - "$UNPACKED_ROOT/transformer/cpu_decode_layout_version.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+marker = json.loads(Path(sys.argv[1]).read_text())
+if marker.get("gemlite_decode_layout") != "over-k-transposed":
+    raise SystemExit(1)
+PY
+    then
+        info "Found corrected GemLite CPU decode layout marker"
+    else
+        err "Unpacked transformer marker does not match the corrected GemLite CPU layout"
+        missing=1
+    fi
+else
+    err "Missing CPU decode layout marker: $UNPACKED_ROOT/transformer/cpu_decode_layout_version.json"
+    echo "       Refresh the unpacked transformer with:"
+    echo "       ./scripts/export_unpacked_cpu_transformer.sh --overwrite"
+    missing=1
+fi
+
 step "Checking Python CPU dependencies ..."
 if "$DEMO_DIR/.venv/bin/python" -c 'import diffusers, hqq, safetensors, transformers' >/dev/null 2>&1; then
     info "Python packages available: diffusers, hqq, safetensors, transformers"

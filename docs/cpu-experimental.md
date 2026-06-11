@@ -39,6 +39,41 @@ The experimental CPU runner expects all of these to exist:
 - `models/bonsai-image-4B-ternary-gemlite/transformer-gemlite-int2`
 - `models/bonsai-image-4B-ternary-unpacked/transformer`
 
+## Fresh clone quickstart
+
+From a new checkout of this branch on a CPU-only Apple Silicon Mac:
+
+```bash
+git clone --branch dv/cpu-image-bringup-report \
+  https://github.com/DenisValeev/Bonsai-Image-Demo.git \
+  /tmp/Bonsai-image-demo-cpu
+cd /tmp/Bonsai-image-demo-cpu
+
+BONSAI_ALLOW_UNSUPPORTED=1 SKIP_DOWNLOAD=1 ./setup.sh
+./scripts/download_model.sh --model ternary-gemlite
+./scripts/export_unpacked_cpu_transformer.sh
+./scripts/preflight_cpu_experimental.sh
+./scripts/generate_cpu_low_memory.sh \
+  --prompt "ostrich" \
+  --output outputs/cpu-ostrich-128.png \
+  --height 128 \
+  --width 128 \
+  --steps 4 \
+  --seed 7
+```
+
+Notes:
+
+- Run `preflight_cpu_experimental.sh` after `export_unpacked_cpu_transformer.sh`.
+  Before export, a fresh checkout is expected to be missing
+  `models/bonsai-image-4B-ternary-unpacked/transformer`.
+- If you are reusing a checkout that already has an unpacked transformer from
+  an older CPU export, refresh it with:
+
+```bash
+./scripts/export_unpacked_cpu_transformer.sh --overwrite
+```
+
 ## Setup
 
 `hqq` is part of the CPU path because the text encoder is stored as HQQ weights. The CPU export/render scripts also import `diffusers`, `safetensors`, and `transformers` directly, so `./setup.sh` needs to leave those in the venv on macOS as well as Linux.
@@ -56,7 +91,9 @@ If you already ran setup before this dependency fix landed, refresh the venv onc
 uv sync
 ```
 
-Then export the unpacked transformer once:
+Then export the unpacked transformer once. The exporter writes the Diffusers
+safetensors payload directly from the GemLite state one tensor at a time; it
+does not materialize the full dense transformer in memory.
 
 ```bash
 ./scripts/export_unpacked_cpu_transformer.sh
@@ -85,7 +122,8 @@ cd /tmp/Bonsai-image-demo-cpu
 Install dependencies and download the GemLite model:
 
 ```bash
-BONSAI_ALLOW_UNSUPPORTED=1 ./setup.sh
+BONSAI_ALLOW_UNSUPPORTED=1 SKIP_DOWNLOAD=1 ./setup.sh
+./scripts/download_model.sh --model ternary-gemlite
 ```
 
 Export the unpacked transformer and check prerequisites:
@@ -112,8 +150,8 @@ Expected result:
 - `outputs/cpu-ostrich.png` is a coherent `128x128` ostrich, not tiled/noisy
   garbage.
 
-The export script now writes a monolithic safetensors payload by default. That
-matches the loader path used for the validated CPU bring-up flow.
+The export script writes a monolithic safetensors payload. That matches the
+loader path used for the validated CPU bring-up flow.
 
 ## Low-memory flow
 
@@ -159,6 +197,8 @@ python scripts/generate_cpu_experimental.py \
 Start with `128x128` and `4` steps.
 
 - `128x128` is the practical CPU smoke-test shape used during bring-up.
+- `512x512` also completed on this 8 GB Apple Silicon host after the GemLite
+  layout fix: about 255 seconds wall time, 5.47 GB peak memory footprint.
 - `64x64` is too small for reliable structure checks.
 - `1024x1024` is not a reasonable first target on an 8 GB RAM machine.
 

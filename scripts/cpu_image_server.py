@@ -47,8 +47,8 @@ class ServerState:
         )
         self.dtype_name = os.environ.get("BONSAI_DTYPE", "float32")
         self.text_encoder_dtype_name = os.environ.get("BONSAI_TEXT_ENCODER_DTYPE", "auto")
-        self.threads = int(os.environ.get("BONSAI_THREADS", "4"))
-        self.interop_threads = int(os.environ.get("BONSAI_INTEROP_THREADS", "4"))
+        self.threads = int(os.environ.get("BONSAI_THREADS", str(gen.default_cpu_threads())))
+        self.interop_threads = int(os.environ.get("BONSAI_INTEROP_THREADS", "1"))
         self.use_gemlite_dense = os.environ.get("BONSAI_GEMLITE_DENSE", "").lower() in {"1", "true", "yes"}
         self.compile_transformer = os.environ.get("BONSAI_COMPILE_TRANSFORMER", "").lower() in {"1", "true", "yes"}
         self.compile_mode = os.environ.get("BONSAI_COMPILE_MODE", "reduce-overhead")
@@ -151,13 +151,13 @@ def generate(req: GenerateRequest) -> dict[str, object]:
     output_path = resolve_output_path(req.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    cache_key = gen.prompt_cache_key(
+    cache_path = gen.prompt_cache_path(
+        STATE.prompt_cache_dir,
         req.prompt,
         STATE.model_root,
         req.max_seq,
         include_inference_dtype=False,
     )
-    cache_path = STATE.prompt_cache_dir / f"{cache_key}.pt"
     if not cache_path.exists():
         raise HTTPException(
             status_code=409,
