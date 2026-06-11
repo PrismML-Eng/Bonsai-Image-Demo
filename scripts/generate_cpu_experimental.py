@@ -47,6 +47,8 @@ def mem_gib() -> float:
 
 TEXT_ENCODER_DTYPE = torch.bfloat16
 CPU_INFERENCE_DTYPE = torch.float16
+PROMPT_EMBEDS_LAYERS = (9, 18, 27)
+PROMPT_CACHE_FORMAT = "klein-qwen3-padded-prompt-v1"
 
 
 def cpu_supports_bf16() -> bool:
@@ -78,6 +80,17 @@ def resolve_text_encoder_dtype(name: str) -> torch.dtype:
     return resolve_inference_dtype(name)
 
 
+def default_cpu_threads() -> int:
+    return max(1, os.cpu_count() or 1)
+
+
+def default_interop_threads() -> int:
+    raw_value = os.environ.get("BONSAI_INTEROP_THREADS")
+    if raw_value:
+        return max(1, int(raw_value))
+    return 1
+
+
 def prompt_cache_key(
     prompt: str,
     model_root: Path,
@@ -86,11 +99,14 @@ def prompt_cache_key(
     include_inference_dtype: bool = True,
 ) -> str:
     payload = {
-        "cache_format": "trimmed-prompt-v1",
+        "cache_format": PROMPT_CACHE_FORMAT,
         "prompt": prompt,
         "model_root": str(model_root.resolve()),
         "max_sequence_length": int(max_sequence_length),
         "text_encoder_dtype": str(TEXT_ENCODER_DTYPE),
+        "prompt_layers": PROMPT_EMBEDS_LAYERS,
+        "add_generation_prompt": True,
+        "enable_thinking": False,
     }
     if include_inference_dtype:
         payload["dtype"] = str(CPU_INFERENCE_DTYPE)
@@ -146,12 +162,6 @@ def encode_prompt(
         if cache_path.exists():
             log(f"loading cached prompt embeds from {cache_path}")
             return torch.load(cache_path, map_location="cpu")
-        compat_cache_path = cache_dir / (
-            f"{prompt_cache_key(prompt, model_root, max_sequence_length, include_inference_dtype=False)}.pt"
-        )
-        if compat_cache_path.exists():
-            log(f"loading compatible cached prompt embeds from {compat_cache_path}")
-            return torch.load(compat_cache_path, map_location="cpu").to(CPU_INFERENCE_DTYPE)
 
     owns_text_encoder = text_encoder is None
     owns_tokenizer = tokenizer is None
@@ -171,7 +181,7 @@ def encode_prompt(
     )
     full_inputs = tokenizer(text, return_tensors="pt")
     actual_token_count = int(full_inputs["input_ids"].shape[1])
-    effective_max_length = min(max_sequence_length, actual_token_count)
+    effective_max_length = max_sequence_length
     inputs = tokenizer(
         text,
         return_tensors="pt",
@@ -188,7 +198,7 @@ def encode_prompt(
     else:
         log(
             f"prompt tokenized to {used_tokens} tokens; "
-            f"effective_seq={effective_max_length} within max_seq={max_sequence_length}"
+            f"padded_seq={effective_max_length}"
         )
     log("encoding prompt")
     start = time.time()
@@ -198,7 +208,7 @@ def encode_prompt(
         output_hidden_states=True,
         use_cache=False,
     )
-    prompt_embeds = torch.stack([output.hidden_states[k] for k in (9, 18, 27)], dim=1)
+    prompt_embeds = torch.stack([output.hidden_states[k] for k in PROMPT_EMBEDS_LAYERS], dim=1)
     batch_size, num_channels, seq_len, hidden_dim = prompt_embeds.shape
     prompt_embeds = (
         prompt_embeds.permute(0, 2, 1, 3)
@@ -212,12 +222,6 @@ def encode_prompt(
         assert cache_path is not None
         torch.save(prompt_embeds, cache_path)
         log(f"saved prompt embeds cache {cache_path}")
-        compat_cache_path = cache_dir / (
-            f"{prompt_cache_key(prompt, model_root, max_sequence_length, include_inference_dtype=False)}.pt"
-        )
-        if compat_cache_path != cache_path:
-            torch.save(prompt_embeds, compat_cache_path)
-            log(f"saved compatible prompt embeds cache {compat_cache_path}")
     del output, inputs
     if owns_text_encoder:
         del text_encoder
@@ -250,14 +254,9 @@ def decode_gemlite_weight(
     w_q = layer_state["W_q"]
     scales = layer_state["scales"].to(torch.float32)
     rows, cols = target_shape
-    if w_q.shape[0] * 4 == rows and w_q.shape[1] == cols:
-        chunks = unpack_rows(w_q, rows, cols)
-        scale_full = scales.repeat_interleave(group_size, dim=0)[:rows, :]
-        return ((chunks.to(torch.float32) - 1.0) * scale_full).to(dtype)
-    if w_q.shape[0] == rows and w_q.shape[1] * 4 == cols:
-        chunks = unpack_cols(w_q, rows, cols)
-        scale_full = scales.repeat_interleave(group_size, dim=0)[:cols, :].T
-        return ((chunks.to(torch.float32) - 1.0) * scale_full).to(dtype)
+    # GemLite's 8-bit packing path stores quantized weights transposed as
+    # (in_features / 4, out_features). Square layers also satisfy the direct
+    # layout checks below, so prefer the saved GemLite layout first.
     if w_q.shape[0] * 4 == cols and w_q.shape[1] == rows:
         chunks = unpack_rows(w_q, cols, rows)
         scale_full = scales.repeat_interleave(group_size, dim=0)[:cols, :]
@@ -266,6 +265,14 @@ def decode_gemlite_weight(
         chunks = unpack_cols(w_q, cols, rows)
         scale_full = scales.repeat_interleave(group_size, dim=0)[:rows, :].T
         return ((chunks.to(torch.float32) - 1.0) * scale_full).T.to(dtype)
+    if w_q.shape[0] * 4 == rows and w_q.shape[1] == cols:
+        chunks = unpack_rows(w_q, rows, cols)
+        scale_full = scales.repeat_interleave(group_size, dim=0)[:rows, :]
+        return ((chunks.to(torch.float32) - 1.0) * scale_full).to(dtype)
+    if w_q.shape[0] == rows and w_q.shape[1] * 4 == cols:
+        chunks = unpack_cols(w_q, rows, cols)
+        scale_full = scales.repeat_interleave(group_size, dim=0)[:cols, :].T
+        return ((chunks.to(torch.float32) - 1.0) * scale_full).to(dtype)
     raise RuntimeError(
         f"Unhandled gemlite packing W_q={tuple(w_q.shape)} target={target_shape} scales={tuple(scales.shape)}"
     )
@@ -520,8 +527,18 @@ def main() -> int:
         default="auto",
         help="Text encoder dtype. auto prefers bf16 only with native support, otherwise float32 for faster CPU prompt encoding.",
     )
-    parser.add_argument("--threads", type=int)
-    parser.add_argument("--interop-threads", type=int)
+    parser.add_argument(
+        "--threads",
+        type=int,
+        default=int(os.environ.get("BONSAI_THREADS", default_cpu_threads())),
+        help="PyTorch intra-op CPU threads. Defaults to BONSAI_THREADS or the host logical CPU count.",
+    )
+    parser.add_argument(
+        "--interop-threads",
+        type=int,
+        default=default_interop_threads(),
+        help="PyTorch inter-op CPU threads. Defaults to BONSAI_INTEROP_THREADS or 1.",
+    )
     parser.add_argument("--prompt-cache-dir")
     parser.add_argument("--model-root", default=str(REPO_ROOT / "models" / "bonsai-image-4B-ternary-gemlite"))
     parser.add_argument("--transformer-dir")
@@ -546,10 +563,8 @@ def main() -> int:
     os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
     if args.steps <= 0:
         raise SystemExit("--steps must be a positive integer")
-    if args.threads is not None:
-        torch.set_num_threads(args.threads)
-    if args.interop_threads is not None:
-        torch.set_num_interop_threads(args.interop_threads)
+    torch.set_num_threads(args.threads)
+    torch.set_num_interop_threads(args.interop_threads)
     CPU_INFERENCE_DTYPE = resolve_inference_dtype(args.dtype)
     TEXT_ENCODER_DTYPE = resolve_text_encoder_dtype(args.text_encoder_dtype)
     model_root = Path(args.model_root)
