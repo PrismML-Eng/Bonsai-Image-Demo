@@ -76,6 +76,12 @@ def resolve_inference_dtype(name: str) -> torch.dtype:
 
 def resolve_text_encoder_dtype(name: str) -> torch.dtype:
     if name == "auto":
+        # On this 8 GB Apple Silicon CPU target, fp32 text-encoder
+        # dequantization can be killed before the prompt cache is written.
+        # fp16 keeps the two-process low-memory path inside RAM and still
+        # produces the validated ostrich outputs.
+        if platform.system() == "Darwin" and platform.machine() == "arm64":
+            return torch.float16
         return torch.bfloat16 if cpu_supports_bf16() else torch.float32
     return resolve_inference_dtype(name)
 

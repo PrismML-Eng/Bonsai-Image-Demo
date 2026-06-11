@@ -7,6 +7,11 @@ This repo's documented fast path is:
 
 The CPU path is experimental. It works from the GemLite/HQQ assets, not from the default macOS MLX download.
 
+On Apple Silicon CPU-only runs, `--text-encoder-dtype auto` resolves to
+`float16` to keep prompt-cache creation inside memory on 8 GB machines. The
+main transformer/VAE dtype remains `auto`, which resolves to `float32` on this
+host.
+
 ## Current status
 
 CPU image generation has been demonstrated end to end on the unpacked transformer
