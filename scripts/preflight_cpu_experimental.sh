@@ -60,7 +60,7 @@ check_dir "$UNPACKED_ROOT/transformer" "unpacked transformer"
 step "Checking unpacked transformer files ..."
 if [ -s "$UNPACKED_ROOT/transformer/diffusion_pytorch_model.safetensors" ] || \
    [ -s "$UNPACKED_ROOT/transformer/diffusion_pytorch_model.safetensors.index.json" ] || \
-   find "$UNPACKED_ROOT/transformer" -maxdepth 1 -type f -name 'diffusion_pytorch_model-*.safetensors' -size +0c | grep -q .; then
+   find "$UNPACKED_ROOT/transformer" -maxdepth 1 -type f -name 'diffusion_pytorch_model-*.safetensors' -size +0c 2>/dev/null | grep -q .; then
     info "Found non-empty unpacked transformer weights"
 else
     err "Unpacked transformer directory exists but does not contain non-empty saved weights"

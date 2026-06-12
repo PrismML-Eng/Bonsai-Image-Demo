@@ -16,6 +16,13 @@ def parse_size(raw: str) -> tuple[int, int]:
     return int(width_text), int(height_text)
 
 
+def server_output_arg(output_path: Path) -> str:
+    try:
+        return str(output_path.relative_to("outputs"))
+    except ValueError:
+        return str(output_path)
+
+
 def bench_one(
     endpoint: str,
     prompt: str,
@@ -30,7 +37,7 @@ def bench_one(
 ) -> dict[str, object]:
     payload = {
         "prompt": prompt,
-        "output": str(output_path),
+        "output": server_output_arg(output_path),
         "width": width,
         "height": height,
         "steps": steps,
