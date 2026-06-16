@@ -14,6 +14,7 @@ cd "$SCRIPT_DIR"
 VENV_DIR="$SCRIPT_DIR/.venv"
 VENV_PY="$VENV_DIR/bin/python"
 PYTHON_VERSION="3.11"
+: "${BONSAI_ALLOW_UNSUPPORTED:=0}"
 
 # Semver comparison: returns 0 if $1 >= $2
 _version_ge() {
@@ -157,9 +158,23 @@ case "$OS" in
         if has_nvidia_gpu; then
             info "NVIDIA GPU detected — using gemlite/HQQ via backend_gpu (mlx/mflux skipped)."
         else
-            warn "No NVIDIA GPU detected. backend_gpu needs CUDA — generation will fail."
-            echo "       Install CUDA toolkit: https://developer.nvidia.com/cuda-downloads"
-            echo "       Continuing anyway (setup will succeed)."
+            if [ "$BONSAI_ALLOW_UNSUPPORTED" = "1" ]; then
+                warn "No NVIDIA GPU detected. backend_gpu needs CUDA — generation will fail."
+                echo "       BONSAI_ALLOW_UNSUPPORTED=1 is set, so setup will continue anyway."
+            else
+                err "No NVIDIA GPU detected. This Linux path requires NVIDIA/CUDA and would only fail later during generation."
+                echo ""
+                echo "  Supported local targets:"
+                echo "    - Apple Silicon macOS (MLX)"
+                echo "    - Linux with NVIDIA GPU + driver/CUDA"
+                echo ""
+                echo "  Experimental CPU bring-up is documented in:"
+                echo "    docs/cpu-experimental.md"
+                echo ""
+                echo "  If you only want the files/models installed for inspection, rerun with:"
+                echo "    BONSAI_ALLOW_UNSUPPORTED=1 ./setup.sh"
+                exit 1
+            fi
         fi
         ;;
 
