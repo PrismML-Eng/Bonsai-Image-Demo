@@ -1,0 +1,14 @@
+# Model weights — downloaded at runtime in the browser, never commit
+*.onnx
+*.onnx_data
+*.safetensors
+*.bin
+*.gguf
+*.pt
+*.pth
+*.ckpt
+*.npz
+*.npy
+models/
+weights/
+cache/

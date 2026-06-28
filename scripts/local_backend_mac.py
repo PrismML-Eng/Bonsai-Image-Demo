@@ -75,3 +75,15 @@ async def _backends(force_disable: bool = False) -> dict:
 
 
 __all__ = ["app"]
+
+
+@app.get("/")
+async def _root() -> dict:
+    """Friendly backend root for people who open the API port directly."""
+    frontend_port = os.environ.get("FRONTEND_PORT", "3000")
+    return {
+        "service": "Bonsai Image backend",
+        "studio_url": f"http://localhost:{frontend_port}/",
+        "docs_url": "/docs",
+        "health_url": "/backends",
+    }

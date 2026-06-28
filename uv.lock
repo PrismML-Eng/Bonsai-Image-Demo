@@ -12,7 +12,7 @@ resolution-markers = [
 
 [options]
 prerelease-mode = "allow"
-exclude-newer = "2026-05-15T07:00:00Z"
+exclude-newer = "2026-05-24T23:00:00Z"
 
 [[package]]
 name = "accelerate"
@@ -877,7 +877,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "mlx"
-version = "0.31.1.dev20260520+b9effaf6"
+version = "0.31.1.dev20260531+b9effaf6"
 source = { git = "https://github.com/PrismML-Eng/mlx.git?rev=b9effaf65ecce0e99a2fb23c8962d34eff95b625#b9effaf65ecce0e99a2fb23c8962d34eff95b625" }
 
 [[package]]

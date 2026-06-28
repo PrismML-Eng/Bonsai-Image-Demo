@@ -125,6 +125,32 @@ local `models/` tree:
 ./scripts/generate.sh -p "An icy bonsai tree, in a rainy forest with a snowy mountain in the background, photo realistic." --size 1248x832 --seed 9909 --output outputs/icy_bonsai.png --open
 ```
 
+### LoRA adapters on macOS / MLX
+
+The optimized Bonsai MLX transformer can apply FLUX.2 Klein 4B LoRAs through
+the fast-kernel adapter path. Test a LoRA before rendering:
+
+```bash
+.venv/bin/python scripts/test_lora.py models/loras/my_lora.safetensors
+```
+
+Use LoRAs from the one-shot CLI:
+
+```bash
+./scripts/generate.sh \
+  -p "adult classical figure study, tasteful studio lighting, full body, wearing nothing" \
+  --lora-paths models/loras/Xiang_Dream_Nocloth_klein_4B_Lora_000011750.safetensors \
+  --lora-scales 0.8
+```
+
+Or start Studio with a LoRA loaded into the backend:
+
+```bash
+MFLUX_STUDIO_LORA_PATHS="$PWD/models/loras/Xiang_Dream_Nocloth_klein_4B_Lora_000011750.safetensors" \
+MFLUX_STUDIO_LORA_SCALES=0.8 \
+./scripts/serve.sh
+```
+
 Default is 512×512 (fast preview). Dimensions have to be multiples of 32. Suggested sizes are:
 
 | Aspect            | Fast (~0.25MP) | Quality (~1MP) |

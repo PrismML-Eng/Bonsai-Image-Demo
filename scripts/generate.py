@@ -108,6 +108,19 @@ def parse_args() -> argparse.Namespace:
                    help="Random integer seed; if unset, a fresh one is picked and printed.")
     p.add_argument("--steps", type=int, default=4, help="Inference steps (recommended: 4).")
     p.add_argument(
+        "--lora-paths",
+        nargs="*",
+        default=None,
+        help="Optional LoRA .safetensors path(s), MLX path only.",
+    )
+    p.add_argument(
+        "--lora-scales",
+        nargs="*",
+        type=float,
+        default=None,
+        help="Optional LoRA scale(s), one per --lora-paths entry.",
+    )
+    p.add_argument(
         "--size", type=parse_size, default=(512, 512),
         help="Image size as WxH (default: 512x512). See recommended sizes below.",
     )
@@ -133,7 +146,9 @@ def parse_args() -> argparse.Namespace:
 
 def resolve_output(args: argparse.Namespace, seed: int) -> Path:
     if args.output is not None:
-        return args.output.expanduser().resolve()
+        out = args.output.expanduser().resolve()
+        out.parent.mkdir(parents=True, exist_ok=True)
+        return out
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     # outputs/{model}/image_{date}_seed{seed}.png — keeps models separate and
     # encodes the seed so a single look at the filename is enough to reproduce.
@@ -213,6 +228,8 @@ def generate_macos(
         baked_model_path=str(model_root),
         te_4bit=True,
         evict_text_encoder=True,
+        lora_paths=args.lora_paths,
+        lora_scales=args.lora_scales,
     ))
     setup_s = time.perf_counter() - setup_t0
     log.info("       setup done in %.1fs", setup_s)
