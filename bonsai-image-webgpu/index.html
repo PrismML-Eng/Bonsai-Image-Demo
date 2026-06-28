@@ -1,0 +1,1382 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bonsai · image generation</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@300;400;500;600&family=Geist+Mono:wght@400;500&display=swap">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌳</text></svg>">
+<style>
+:root {
+  --bg:      #0c0a08;
+  --surface: #14110f;
+  --border:  #231f1c;
+  --border2: #1a1714;
+  --faint:   #5a5048;
+  --dim:     #7a6f63;
+  --muted:   #9a8f81;
+  --cream:   #f4ecde;
+  --amber:   #e8a55e;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--cream);
+  font-family: 'Geist', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+  opacity: 0;
+  transition: opacity 0.35s ease;
+}
+body.loaded { opacity: 1; }
+
+[hidden] { display: none !important; }
+
+.section {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 4rem 1.5rem;
+}
+
+.gate-inner {
+  width: 100%;
+  max-width: 540px;
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 0.7s cubic-bezier(0.2, 0.7, 0.2, 1) 0.1s,
+              transform 0.7s cubic-bezier(0.2, 0.7, 0.2, 1) 0.1s;
+}
+body.loaded .gate-inner { opacity: 1; transform: translateY(0); }
+
+.brand {
+  font-family: 'Instrument Serif', serif;
+  font-size: 34px;
+  letter-spacing: -0.5px;
+  margin: 0 0 0.25rem 0;
+  color: var(--cream);
+}
+.brand em {
+  font-style: italic;
+  color: var(--amber);
+}
+.brand-sub {
+  margin: 0 0 1rem 0;
+  font-family: 'Geist Mono', monospace;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+  color: var(--dim);
+}
+
+.disclaimer {
+  display: flex;
+  gap: 0.875rem;
+  padding: 1rem 1.125rem;
+  background: rgba(232, 165, 94, 0.04);
+  border: 1px solid rgba(232, 165, 94, 0.18);
+  border-radius: 6px;
+}
+.disclaimer .icon { color: var(--amber); flex-shrink: 0; margin-top: 2px; }
+.disclaimer-content { flex: 1; min-width: 0; }
+.disclaimer-title {
+  margin: 0 0 0.375rem 0;
+  font-family: 'Geist Mono', monospace;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--amber);
+}
+.disclaimer-body {
+  margin: 0;
+  font-size: 14px;
+  color: var(--muted);
+  line-height: 1.55;
+}
+.flag-name {
+  font-family: 'Geist Mono', monospace;
+  font-size: 12.5px;
+  color: var(--amber);
+}
+.flag-copy {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  padding: 6px 6px 6px 10px;
+  background: rgba(232, 165, 94, 0.06);
+  border: 1px solid rgba(232, 165, 94, 0.18);
+  border-radius: 4px;
+}
+.flag-url {
+  flex: 1;
+  font-family: 'Geist Mono', monospace;
+  font-size: 12px;
+  color: var(--cream);
+  user-select: all;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.flag-copy-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--dim);
+  padding: 4px 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+  transition: color 0.15s ease, background 0.15s ease;
+  flex-shrink: 0;
+}
+.flag-copy-btn:hover { color: var(--cream); background: rgba(232, 165, 94, 0.08); }
+
+.token-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+}
+.token-label {
+  font-family: 'Geist Mono', monospace;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--dim);
+}
+.token-input-wrap {
+  display: flex;
+  align-items: center;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding-right: 4px;
+  transition: border-color 0.15s ease;
+}
+.token-input-wrap:focus-within { border-color: var(--faint); }
+.token-input-wrap.error { border-color: rgba(232, 165, 94, 0.5); }
+.token-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--cream);
+  font-family: 'Geist Mono', monospace;
+  font-size: 14px;
+  padding: 12px 16px;
+  min-width: 0;
+}
+.token-input::placeholder { color: var(--faint); }
+.token-toggle {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--dim);
+  font-family: 'Geist Mono', monospace;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  padding: 8px 12px;
+  transition: color 0.15s ease;
+  flex-shrink: 0;
+}
+.token-toggle:hover { color: var(--cream); }
+
+.token-help {
+  margin: 0;
+  font-family: 'Geist Mono', monospace;
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--dim);
+}
+.token-help .model-id {
+  color: var(--muted);
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+.token-help .model-id:hover { color: var(--cream); text-decoration: underline; }
+.token-help.error { color: var(--amber); }
+
+.loading-inner {
+  width: 100%;
+  max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.25rem;
+}
+.loading-title {
+  font-family: 'Geist Mono', monospace;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--amber);
+  margin: 0;
+}
+.loading-status {
+  font-size: 14px;
+  color: var(--muted);
+  margin: 0;
+  text-align: center;
+  min-height: 1.2em;
+}
+.loading-bar {
+  width: 100%;
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.loading-bar-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--amber);
+  transition: width 0.2s ease;
+}
+.loading-spinner { color: var(--amber); }
+
+.landing {
+  position: relative;
+  overflow: hidden;
+  padding: 0;
+  align-items: flex-start;
+  justify-content: center;
+}
+.hero-scene {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background:
+    radial-gradient(ellipse 55% 60% at 62% 50%,
+      rgba(232, 165, 94, 0.18) 0%,
+      rgba(232, 120, 60, 0.08) 28%,
+      rgba(12, 10, 8, 0)        60%),
+    radial-gradient(ellipse 90% 80% at 62% 50%,
+      rgba(40, 25, 15, 0.55) 0%,
+      rgba(12, 10, 8, 0)     70%);
+}
+.hero-scene #root { width: 100%; height: 100%; }
+
+.landing-inner {
+  position: relative;
+  z-index: 10;
+  width: 100%;
+  max-width: 620px;
+  padding: 2rem clamp(2rem, 6vw, 5rem) 2rem clamp(3rem, 11vw, 9rem);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1.25rem;
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 0.8s cubic-bezier(0.2, 0.7, 0.2, 1) 0.15s,
+              transform 0.8s cubic-bezier(0.2, 0.7, 0.2, 1) 0.15s;
+}
+body.loaded .landing-inner { opacity: 1; transform: translateY(0); }
+
+.landing.leaving { transition: opacity 0.5s ease; opacity: 0; pointer-events: none; }
+
+.landing-eyebrow {
+  font-family: 'Geist Mono', monospace;
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+  color: var(--amber);
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.landing-eyebrow::before {
+  content: '';
+  width: 24px;
+  height: 1px;
+  background: var(--amber);
+}
+.landing-title {
+  font-family: 'Instrument Serif', serif;
+  font-size: clamp(40px, 5.5vw, 64px);
+  font-weight: 400;
+  line-height: 1.05;
+  letter-spacing: -1.5px;
+  color: var(--cream);
+  margin: 0;
+}
+.landing-title em {
+  font-style: italic;
+  color: var(--amber);
+}
+.landing-tagline {
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--muted);
+  max-width: 420px;
+  margin: 0;
+}
+.cta-group {
+  position: relative;
+  margin-top: 0.75rem;
+  display: inline-flex;
+  align-items: stretch;
+  gap: 2px;
+}
+.landing-cta {
+  background: var(--cream);
+  color: var(--bg);
+  border: none;
+  font-family: 'Geist Mono', monospace;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  transition: transform 0.2s ease, background 0.2s ease;
+}
+.landing-cta:hover { background: #fff5e3; }
+.landing-cta-main {
+  border-radius: 9999px 0 0 9999px;
+  padding: 12px 24px 12px 28px;
+}
+.landing-cta-main:hover { transform: translateY(-1px); }
+.landing-cta-main svg { transition: transform 0.2s ease; }
+.landing-cta-main:hover svg { transform: translateX(3px); }
+.landing-cta-toggle {
+  border-radius: 0 9999px 9999px 0;
+  padding: 12px 16px;
+}
+.landing-cta-toggle svg { transition: transform 0.2s ease; }
+.landing-cta-toggle[aria-expanded="true"] svg { transform: rotate(-180deg); }
+
+.model-menu {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 0;
+  z-index: 20;
+  width: clamp(320px, 32rem, 480px);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1rem;
+  box-shadow: 0 24px 60px -16px rgba(0, 0, 0, 0.6);
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+.model-menu-title {
+  margin: 0 0 0.25rem 0;
+  font-family: 'Geist Mono', monospace;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--dim);
+}
+.model-menu-item {
+  all: unset;
+  cursor: pointer;
+  display: flex;
+  gap: 0.75rem;
+  padding: 0.875rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: transparent;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.model-menu-item:hover {
+  border-color: var(--faint);
+  background: rgba(232, 165, 94, 0.04);
+}
+.model-menu-item.selected {
+  border-color: rgba(232, 165, 94, 0.5);
+  background: rgba(232, 165, 94, 0.06);
+}
+.model-menu-radio {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  margin-top: 4px;
+  border-radius: 50%;
+  border: 1.5px solid var(--faint);
+  background: transparent;
+  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+.model-menu-item.selected .model-menu-radio {
+  border-color: var(--amber);
+  background: var(--amber);
+  box-shadow: inset 0 0 0 3px var(--surface);
+}
+.model-menu-text { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.model-menu-name {
+  font-family: 'Geist Mono', monospace;
+  font-size: 12.5px;
+  color: var(--cream);
+  letter-spacing: 0.04em;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.model-menu-tag {
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  color: var(--amber);
+  background: rgba(232, 165, 94, 0.1);
+  border: 1px solid rgba(232, 165, 94, 0.25);
+  padding: 2px 6px;
+  border-radius: 9999px;
+}
+.model-menu-desc {
+  font-family: 'Geist', system-ui, sans-serif;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.model-menu-meta {
+  font-family: 'Geist Mono', monospace;
+  font-size: 11px;
+  color: var(--dim);
+  letter-spacing: 0.08em;
+}
+.model-menu-footnote {
+  margin: 0;
+  padding-top: 0.625rem;
+  border-top: 1px solid var(--border2);
+  font-family: 'Geist Mono', monospace;
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--dim);
+}
+
+.hero-inner {
+  position: relative;
+  z-index: 10;
+  width: 100%;
+  max-width: 560px;
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 0.7s cubic-bezier(0.2, 0.7, 0.2, 1) 0.1s,
+              transform 0.7s cubic-bezier(0.2, 0.7, 0.2, 1) 0.1s;
+}
+body.loaded .hero-inner { opacity: 1; transform: translateY(0); }
+
+.hero-eyebrow-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+.hero-eyebrow {
+  font-family: 'Geist Mono', monospace;
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+  color: var(--amber);
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.hero-eyebrow::before {
+  content: '';
+  width: 24px;
+  height: 1px;
+  background: var(--amber);
+}
+
+/* "Running locally" badge: a pulsing dot + status text + (optional)
+   detected hardware. Sits on the right side of the prompt eyebrow row.
+   Hover tooltip explains what "locally" means. */
+.local-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px 5px 10px;
+  background: rgba(74, 158, 96, 0.08);
+  border: 1px solid rgba(74, 158, 96, 0.25);
+  border-radius: 9999px;
+  font-family: 'Geist Mono', monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  color: #b4d8a6;
+  cursor: help;
+  user-select: none;
+  white-space: nowrap;
+}
+.local-badge-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #6ec47a;
+  box-shadow: 0 0 0 0 rgba(110, 196, 122, 0.6);
+  animation: local-badge-pulse 2.4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+.local-badge-text { font-weight: 500; }
+.local-badge-meta {
+  color: rgba(180, 216, 166, 0.7);
+  font-weight: 400;
+  padding-left: 6px;
+  border-left: 1px solid rgba(74, 158, 96, 0.25);
+  /* Long GPU strings can blow the layout out; clamp + ellipsize. */
+  max-width: 22ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@keyframes local-badge-pulse {
+  0%   { box-shadow: 0 0 0 0    rgba(110, 196, 122, 0.55); }
+  70%  { box-shadow: 0 0 0 8px  rgba(110, 196, 122, 0);    }
+  100% { box-shadow: 0 0 0 0    rgba(110, 196, 122, 0);    }
+}
+
+.prompt {
+  width: 100%;
+  background: transparent;
+  border: none;
+  outline: none;
+  resize: none;
+  color: var(--cream);
+  font-family: 'Instrument Serif', serif;
+  font-style: italic;
+  font-size: 2.25rem;
+  line-height: 1.25;
+  padding: 0;
+}
+.prompt::placeholder { color: var(--faint); }
+@media (max-width: 540px) { .prompt { font-size: 1.875rem; } }
+
+.example-link {
+  align-self: flex-end;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--dim);
+  font-family: 'Geist Mono', monospace;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  padding: 4px 0;
+  transition: color 0.15s ease;
+}
+.example-link:hover { color: var(--cream); }
+
+.controls {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--border2);
+}
+.size-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+}
+.size-label {
+  color: var(--dim);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: 12px;
+  font-family: 'Geist Mono', monospace;
+}
+.presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+.preset {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--dim);
+  font-family: 'Geist Mono', monospace;
+  font-size: 12px;
+  letter-spacing: 0.05em;
+  padding: 7px 14px;
+  border-radius: 9999px;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+.preset:hover { color: var(--cream); border-color: var(--faint); }
+.preset.active {
+  background: var(--cream);
+  color: var(--bg);
+  border-color: var(--cream);
+}
+.slider-row {
+  display: grid;
+  grid-template-columns: 22px 1fr 4ch;
+  align-items: center;
+  gap: 0.875rem;
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 13px;
+}
+.slider-row .sub-label {
+  color: var(--dim);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: 12px;
+}
+.slider-row .sub-value {
+  color: var(--cream);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.seed-row {
+  display: grid;
+  grid-template-columns: 60px 1fr auto;
+  align-items: center;
+  gap: 1rem;
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 13px;
+}
+.seed-row .seed-label {
+  color: var(--dim);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: 12px;
+}
+.seed-input {
+  width: 100%;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--cream);
+  font-family: inherit;
+  font-size: 14px;
+  padding: 4px 0;
+  font-variant-numeric: tabular-nums;
+}
+.seed-input::placeholder { color: var(--faint); }
+
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  background: transparent;
+  cursor: pointer;
+  margin: 0;
+}
+input[type="range"]::-webkit-slider-runnable-track { height: 1px; background: var(--border); }
+input[type="range"]::-moz-range-track             { height: 1px; background: var(--border); }
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--cream);
+  border: none;
+  margin-top: -6.5px;
+  cursor: grab;
+  transition: transform 0.15s ease;
+}
+input[type="range"]::-webkit-slider-thumb:hover  { transform: scale(1.15); }
+input[type="range"]::-webkit-slider-thumb:active { cursor: grabbing; transform: scale(1.1); }
+input[type="range"]::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--cream);
+  border: none;
+  cursor: grab;
+}
+
+.icon-btn-sm {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--dim);
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease;
+  flex-shrink: 0;
+  padding: 0;
+}
+.icon-btn-sm:hover { color: var(--cream); border-color: var(--faint); }
+
+.generate {
+  width: 100%;
+  background: var(--cream);
+  color: var(--bg);
+  border: none;
+  border-radius: 9999px;
+  padding: 14px 24px;
+  font-family: 'Geist Mono', monospace;
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  transition: opacity 0.15s ease;
+  margin-top: 0.5rem;
+}
+.generate:disabled {
+  background: var(--surface);
+  color: var(--faint);
+  cursor: not-allowed;
+}
+
+.gallery-link {
+  position: absolute;
+  bottom: 1.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--faint);
+  font-family: 'Geist Mono', monospace;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  transition: color 0.15s ease;
+  z-index: 10;
+}
+.gallery-link:hover { color: var(--cream); }
+
+.gallery-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: rgba(12, 10, 8, 0.78);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--border2);
+  padding: 0.875rem 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.image-count {
+  font-family: 'Geist Mono', monospace;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  color: var(--faint);
+}
+.header-actions { display: flex; align-items: center; gap: 0.5rem; }
+
+.pill-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 9999px;
+  color: var(--muted);
+  font-family: 'Geist Mono', monospace;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  padding: 7px 14px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+.pill-btn:hover { color: var(--cream); border-color: var(--faint); }
+.text-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--faint);
+  font-family: 'Geist Mono', monospace;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  padding: 6px 10px;
+  transition: color 0.15s ease;
+}
+.text-btn:hover { color: var(--cream); }
+
+.grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 2px;
+  padding: 2px;
+}
+@media (min-width: 640px)  { .grid { grid-template-columns: repeat(2, 1fr); } }
+@media (min-width: 1024px) { .grid { grid-template-columns: repeat(3, 1fr); } }
+
+.grid-item {
+  aspect-ratio: 1 / 1;
+  position: relative;
+  overflow: hidden;
+  background: var(--surface);
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+.grid-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: opacity 0.7s ease, transform 1s ease;
+}
+.grid-item:hover .grid-img { transform: scale(1.04); }
+.grid-overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, transparent 40%, rgba(12, 10, 8, 0.92) 100%);
+  display: flex;
+  align-items: flex-end;
+  padding: 1rem;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+}
+.grid-item:hover .grid-overlay { opacity: 1; }
+.grid-prompt {
+  margin: 0;
+  font-family: 'Instrument Serif', serif;
+  font-style: italic;
+  color: var(--cream);
+  font-size: 1.1rem;
+  line-height: 1.25;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.grid-share {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  background: rgba(12, 10, 8, 0.6);
+  border: 1px solid rgba(244, 236, 222, 0.15);
+  color: var(--cream);
+  cursor: pointer;
+  padding: 0;
+  opacity: 0;
+  transition: opacity 0.2s ease, background 0.15s ease, color 0.15s ease;
+  pointer-events: auto;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+.grid-item:hover .grid-share { opacity: 1; }
+.grid-share:hover { background: rgba(232, 165, 94, 0.16); color: var(--amber); }
+.grid-fail {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--faint);
+  font-family: 'Geist Mono', monospace;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+}
+
+.load-more {
+  height: 6rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--faint);
+}
+
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
+.shimmer {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, var(--surface) 0%, #211d19 50%, var(--surface) 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+.spin { animation: spin 1s linear infinite; }
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.fade-up { animation: fadeUp 0.6s cubic-bezier(0.2, 0.7, 0.2, 1) backwards; }
+
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgba(8, 7, 6, 0.96);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+}
+.icon-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 9999px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--cream);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: background 0.15s ease;
+}
+.icon-btn:hover { background: #1c1816; }
+.modal-close { position: absolute; top: 1.5rem; right: 1.5rem; z-index: 10; }
+.modal-prev  { position: absolute; left: 1.5rem;  top: 50%; transform: translateY(-50%); z-index: 10; }
+.modal-next  { position: absolute; right: 1.5rem; top: 50%; transform: translateY(-50%); z-index: 10; }
+
+.modal-content {
+  width: 100%;
+  max-width: 1280px;
+  max-height: 100%;
+  display: flex;
+  gap: 2.5rem;
+  align-items: center;
+}
+@media (max-width: 900px) {
+  .modal-content { flex-direction: column; gap: 1.5rem; }
+}
+.modal-img-wrap {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  min-width: 0;
+}
+.modal-loader {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--faint);
+}
+.modal-img {
+  max-width: 100%;
+  max-height: 85vh;
+  object-fit: contain;
+  box-shadow: 0 30px 80px -20px rgba(0, 0, 0, 0.8);
+  transition: opacity 0.5s ease;
+}
+.modal-meta {
+  width: 18rem;
+  max-width: 100%;
+  max-height: 85vh;
+  overflow-y: auto;
+  flex-shrink: 0;
+}
+
+.prompt-block { position: relative; margin-bottom: 2.5rem; }
+.prompt-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+  min-height: 28px;
+}
+.prompt-header .meta-label { margin: 0; }
+.copy-btn {
+  opacity: 0;
+  transition: opacity 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.prompt-block:hover .copy-btn,
+.copy-btn:focus-visible { opacity: 1; }
+.copy-btn.copied {
+  opacity: 1;
+  color: var(--cream);
+  border-color: var(--faint);
+}
+
+.meta-label {
+  margin: 0 0 0.75rem 0;
+  font-family: 'Geist Mono', monospace;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.25em;
+  color: var(--dim);
+}
+.meta-prompt {
+  margin: 0;
+  font-family: 'Instrument Serif', serif;
+  font-style: italic;
+  color: var(--cream);
+  font-size: 1.875rem;
+  line-height: 1.25;
+}
+#metaParams { margin: 0 0 2.5rem 0; }
+.meta-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+  padding: 0.625rem 0;
+  border-bottom: 1px solid var(--border2);
+  font-family: 'Geist Mono', monospace;
+  font-size: 13px;
+}
+.meta-row dt {
+  color: var(--dim);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: 11px;
+}
+.meta-row dd { color: var(--cream); margin: 0; }
+
+.meta-actions {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+}
+.meta-share,
+.meta-delete {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--dim);
+  font-family: 'Geist Mono', monospace;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  transition: color 0.15s ease;
+}
+.meta-share:hover { color: var(--amber); }
+.meta-delete:hover { color: var(--cream); }
+.meta-share[disabled] { opacity: 0.4; cursor: default; }
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #2a2522; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #3a3530; }
+</style>
+  <script type="module" crossorigin src="/assets/index-Bf-HmMxp.js"></script>
+</head>
+<body>
+
+<section class="section landing" id="landingSection">
+  <div class="hero-scene">
+    <div id="root"></div>
+  </div>
+
+  <div class="landing-inner">
+    <p class="landing-eyebrow">Bonsai Image · 4B</p>
+    <h1 class="landing-title">State-of-the-art image generation,<br><em>in your browser.</em></h1>
+    <p class="landing-tagline">
+      A family of compressed image-generation models for high-quality diffusion on local hardware.
+    </p>
+
+    <div class="cta-group" id="ctaGroup">
+      <button class="landing-cta landing-cta-main" id="tryDemoBtn" type="button">
+        <span>Load <span id="ctaModelLabel">Ternary</span> model</span>
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>
+        </svg>
+      </button>
+      <button class="landing-cta landing-cta-toggle" id="modelMenuToggle" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="Choose model">
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="m6 9 6 6 6-6"/>
+        </svg>
+      </button>
+
+      <div class="model-menu" id="modelMenu" role="menu" hidden>
+        <p class="model-menu-title">Choose a variant</p>
+        <button class="model-menu-item" role="menuitemradio" data-model-id="prism-ml/bonsai-image-ternary-4B-mlx-2bit" type="button">
+          <span class="model-menu-radio" aria-hidden="true"></span>
+          <span class="model-menu-text">
+            <span class="model-menu-name">Ternary Bonsai Image 4B<span class="model-menu-tag">recommended</span></span>
+            <span class="model-menu-desc">
+              {-1, 0, +1} weights with FP16 group-wise scale — ~1.7 bits/weight. The extra zero state improves visual quality and prompt fidelity while staying extremely compact.
+            </span>
+            <span class="model-menu-meta">3.3 GB</span>
+          </span>
+        </button>
+        <button class="model-menu-item" role="menuitemradio" data-model-id="prism-ml/bonsai-image-binary-4B-mlx-1bit" type="button">
+          <span class="model-menu-radio" aria-hidden="true"></span>
+          <span class="model-menu-text">
+            <span class="model-menu-name">1-bit Bonsai Image 4B</span>
+            <span class="model-menu-desc">
+              Binary {-1, +1} weights with FP16 group-wise scale — ~1.1 bits/weight. Targets maximum compression when memory pressure and deployment footprint are the priority.
+            </span>
+            <span class="model-menu-meta">2.86 GB</span>
+          </span>
+        </button>
+        <p class="model-menu-footnote">
+          Compressed from the original FLUX2-Klein 4B (15.97 GB).
+        </p>
+      </div>
+    </div>
+  </div>
+
+</section>
+
+<section class="section" id="gateSection" hidden>
+  <div class="gate-inner">
+    <div>
+      <h1 class="brand">Bonsai Image · <em>4B</em></h1>
+      <p class="brand-sub">Flux2-Klein · WebGPU</p>
+    </div>
+
+    <div class="disclaimer">
+      <svg class="icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/>
+        <path d="M12 9v4"/>
+        <path d="M12 17h.01"/>
+      </svg>
+      <div class="disclaimer-content">
+        <p class="disclaimer-title">experimental</p>
+        <p class="disclaimer-body">
+          Research software, primarily tested on Apple M4 Max and M5 Max.
+          It may not be optimized for your hardware.
+        </p>
+        <p class="disclaimer-body" style="margin-top: 0.625rem;">
+          On Chrome/Edge, enable the
+          <code class="flag-name">#enable-unsafe-webgpu</code>
+          flag for best performance:
+        </p>
+        <div class="flag-copy">
+          <code class="flag-url" id="flagUrl">chrome://flags/#enable-unsafe-webgpu</code>
+          <button class="flag-copy-btn" id="flagCopyBtn" type="button" title="Copy URL">
+            <span id="flagCopyIcon"></span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="token-group">
+      <label class="token-label" for="tokenInput">HuggingFace Access Token</label>
+      <div class="token-input-wrap" id="tokenInputWrap">
+        <input
+          type="password"
+          id="tokenInput"
+          class="token-input"
+          placeholder="hf_..."
+          autocomplete="off"
+          spellcheck="false"
+        >
+        <button class="token-toggle" id="tokenToggleBtn" type="button">show</button>
+      </div>
+      <p class="token-help" id="tokenHelp"></p>
+    </div>
+
+    <button class="generate" id="continueBtn" disabled>continue</button>
+  </div>
+</section>
+
+<section class="section" id="loadingSection" hidden>
+  <div class="loading-inner">
+    <svg class="spin loading-spinner" xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+    </svg>
+    <p class="loading-title">loading model</p>
+    <p class="loading-status" id="loadingStatus">preparing…</p>
+    <div class="loading-bar"><div class="loading-bar-fill" id="loadingBarFill"></div></div>
+  </div>
+</section>
+
+<section class="section" id="hero" hidden>
+  <div class="hero-inner">
+    <div class="hero-eyebrow-row">
+      <p class="hero-eyebrow">enter a prompt</p>
+      <div class="local-badge" id="localBadge" title="All inference happens in your browser via WebGPU. No server calls, no data leaving your machine.">
+        <span class="local-badge-dot" aria-hidden="true"></span>
+        <span class="local-badge-text">Running locally</span>
+        <span class="local-badge-meta" id="localBadgeMeta" hidden></span>
+      </div>
+    </div>
+
+    <textarea
+      class="prompt"
+      id="prompt"
+      placeholder="Describe your image..."
+      rows="3"
+    ></textarea>
+
+    <button class="example-link" id="exampleBtn" type="button" title="Try an example prompt">
+      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect width="12" height="12" x="2" y="10" rx="2" ry="2"/>
+        <path d="m17.92 14 3.5-3.5a2.24 2.24 0 0 0 0-3l-5-4.92a2.24 2.24 0 0 0-3 0L10 6"/>
+        <path d="M6 18h.01"/><path d="M10 14h.01"/><path d="M15 6h.01"/><path d="M18 9h.01"/>
+      </svg>
+      try an example
+    </button>
+
+    <div class="controls">
+      <div class="size-group">
+        <span class="size-label">Size</span>
+        <div class="presets" id="presets">
+          <button class="preset" data-ratio="1:1"  data-rw="1"  data-rh="1"  type="button">1:1</button>
+          <button class="preset" data-ratio="4:3"  data-rw="4"  data-rh="3"  type="button">4:3</button>
+          <button class="preset" data-ratio="3:4"  data-rw="3"  data-rh="4"  type="button">3:4</button>
+          <button class="preset" data-ratio="16:9" data-rw="16" data-rh="9"  type="button">16:9</button>
+          <button class="preset" data-ratio="9:16" data-rw="9"  data-rh="16" type="button">9:16</button>
+        </div>
+        <div class="slider-row">
+          <span class="sub-label">W</span>
+          <input type="range" id="widthSlider" min="256" max="1024" step="16" value="512">
+          <span class="sub-value" id="widthValue">512</span>
+        </div>
+        <div class="slider-row">
+          <span class="sub-label">H</span>
+          <input type="range" id="heightSlider" min="256" max="1024" step="16" value="512">
+          <span class="sub-value" id="heightValue">512</span>
+        </div>
+      </div>
+
+      <div class="seed-row">
+        <span class="seed-label">Steps</span>
+        <input type="range" id="stepsSlider" min="1" max="50" step="1" value="4">
+        <span class="sub-value" id="stepsValue">4</span>
+      </div>
+
+      <div class="seed-row">
+        <span class="seed-label">Seed</span>
+        <input
+          type="text"
+          inputmode="numeric"
+          id="seedInput"
+          class="seed-input"
+          placeholder="random"
+        >
+        <button class="icon-btn-sm" id="randomSeedBtn" type="button" title="Randomize seed">
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect width="12" height="12" x="2" y="10" rx="2" ry="2"/>
+            <path d="m17.92 14 3.5-3.5a2.24 2.24 0 0 0 0-3l-5-4.92a2.24 2.24 0 0 0-3 0L10 6"/>
+            <path d="M6 18h.01"/><path d="M10 14h.01"/><path d="M15 6h.01"/><path d="M18 9h.01"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <button class="generate" id="generateBtn" disabled>generate</button>
+  </div>
+
+  <button class="gallery-link" id="galleryLink" hidden></button>
+</section>
+
+<section id="gallerySection" hidden>
+  <div class="gallery-header">
+    <span class="image-count" id="imageCountTop"></span>
+    <div class="header-actions">
+      <button class="text-btn" id="clearAllBtn">clear all</button>
+      <button class="pill-btn" id="newBtn">
+        <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="m5 12 7-7 7 7"/><path d="M12 19V5"/>
+        </svg>
+        new
+      </button>
+    </div>
+  </div>
+  <div class="grid" id="grid"></div>
+  <div class="load-more" id="loadMoreSentinel"></div>
+</section>
+
+<div class="modal" id="modal" hidden>
+  <button class="icon-btn modal-close" id="modalClose" aria-label="Close">
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M18 6 6 18"/><path d="m6 6 12 12"/>
+    </svg>
+  </button>
+  <button class="icon-btn modal-prev" id="modalPrev" aria-label="Previous">
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="m15 18-6-6 6-6"/>
+    </svg>
+  </button>
+  <button class="icon-btn modal-next" id="modalNext" aria-label="Next">
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="m9 18 6-6-6-6"/>
+    </svg>
+  </button>
+
+  <div class="modal-content">
+    <div class="modal-img-wrap">
+      <div class="modal-loader" id="modalLoader">
+        <svg class="spin" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+        </svg>
+      </div>
+      <img class="modal-img" id="modalImg" alt="">
+    </div>
+
+    <aside class="modal-meta">
+      <div class="prompt-block">
+        <div class="prompt-header">
+          <span class="meta-label">prompt</span>
+          <button class="copy-btn icon-btn-sm" id="copyPromptBtn" type="button" title="Copy prompt">
+            <span id="copyIcon"></span>
+          </button>
+        </div>
+        <p class="meta-prompt" id="metaPrompt"></p>
+      </div>
+
+      <p class="meta-label">parameters</p>
+      <dl id="metaParams"></dl>
+
+      <div class="meta-actions">
+        <button class="meta-share" id="modalShare" type="button" hidden>
+          <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/>
+            <polyline points="16 6 12 2 8 6"/>
+            <line x1="12" x2="12" y1="2" y2="15"/>
+          </svg>
+          share
+        </button>
+        <button class="meta-delete" id="modalDelete" type="button">
+          <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 6h18"/>
+            <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/>
+            <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>
+            <line x1="10" x2="10" y1="11" y2="17"/>
+            <line x1="14" x2="14" y1="11" y2="17"/>
+          </svg>
+          delete
+        </button>
+      </div>
+    </aside>
+  </div>
+</div>
+
+
+</body>
+</html>
