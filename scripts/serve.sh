@@ -15,6 +15,13 @@
 # Env knobs:
 #   BACKEND_PORT           Override 8000.
 #   FRONTEND_PORT          Override 3000.
+#   BACKEND_HOST           Override 127.0.0.1 (loopback-only, the default).
+#                          Set BACKEND_HOST=0.0.0.0 to make it reachable from
+#                          other machines (LAN, VPN/tailnet, container bridge,
+#                          etc.). Neither backend variant has auth enabled in
+#                          this demo, so this exposes an unauthenticated
+#                          image-generation API — only do this on a trusted
+#                          network.
 #   STUDIO_DIR             Path to image-studio checkout (default: vendor/image-studio).
 #   BACKEND_READY_TIMEOUT  Seconds to wait for backend's /backends to answer
 #                          (default 180). Bump on slow GPUs — T4 cold JIT for
@@ -28,6 +35,7 @@ ensure_venv "$DEMO_DIR"
 
 : "${BACKEND_PORT:=8000}"
 : "${FRONTEND_PORT:=3000}"
+: "${BACKEND_HOST:=127.0.0.1}"
 : "${STUDIO_DIR:=$DEMO_DIR/vendor/image-studio}"
 
 # ── platform check ──
@@ -206,6 +214,15 @@ mkdir -p "$LOG_DIR"
 BACKEND_LOG="$LOG_DIR/backend.log"
 FRONTEND_LOG="$LOG_DIR/frontend.log"
 
+_backend_wide=""
+case "$BACKEND_HOST" in
+    127.0.0.1|localhost|::1) ;;
+    *)
+        _backend_wide=1
+        warn "BACKEND_HOST=$BACKEND_HOST — backend will be reachable from other machines with NO authentication (neither backend variant has auth enabled in this demo). Only do this on a trusted network."
+        ;;
+esac
+
 step "Starting backend on :$BACKEND_PORT (default arm: $_default_backend)"
 echo "       logs: $BACKEND_LOG"
 if [ "$OS" = "Linux" ]; then
@@ -226,6 +243,7 @@ if [ "$OS" = "Linux" ]; then
                MFLUX_STUDIO_GPU_VAE_PATH="$_model_dir/vae" \
                MFLUX_STUDIO_GPU_TOKENIZER_PATH="$_model_dir/text_encoder-hqq-4bit/tokenizer" \
                "$DEMO_DIR/.venv/bin/uvicorn" "$_backend_module" \
+                   --host "$BACKEND_HOST" \
                    --port "$BACKEND_PORT" \
                    > "$BACKEND_LOG" 2>&1) &
     BACKEND_PID=$!
@@ -254,6 +272,7 @@ else
     MFLUX_STUDIO_TE_4BIT=true \
     MFLUX_STUDIO_FORCE_DISABLE_GPU=true \
         "$DEMO_DIR/.venv/bin/uvicorn" "$_backend_module" \
+            --host "$BACKEND_HOST" \
             --port "$BACKEND_PORT" \
             > "$BACKEND_LOG" 2>&1 &
     BACKEND_PID=$!
@@ -287,6 +306,11 @@ echo "       logs: $FRONTEND_LOG"
 # NEXT_PUBLIC_BACKEND_URL flows into the frontend's API route handlers
 # (app/api/*/route.ts) so they hit the right port when BACKEND_PORT is
 # overridden — defaults baked in those files target :8000.
+#
+# No -H flag here on purpose: Next.js already binds all interfaces by
+# default when -H is omitted (Node's server.listen(port, undefined) default),
+# so the frontend is reachable from other machines regardless of BACKEND_HOST.
+# Don't "fix" this thinking it's loopback-only.
 (cd "$FRONTEND_DIR" \
     && PATH="$VENV_BIN:$PATH" \
        PORT="$FRONTEND_PORT" \
@@ -411,6 +435,18 @@ echo "    http://localhost:$BACKEND_PORT/             root"
 echo "    http://localhost:$BACKEND_PORT/backends     available arms + GPU probe"
 echo "    http://localhost:$BACKEND_PORT/docs         OpenAPI UI"
 echo ""
+if [ -n "$_backend_wide" ]; then
+    _host_ip="$(host_ip)"
+    echo "  Network access (BACKEND_HOST=$BACKEND_HOST):"
+    if [ -n "$_host_ip" ]; then
+        echo "    http://$_host_ip:$FRONTEND_PORT/          open this on another device"
+        echo "    http://$_host_ip:$BACKEND_PORT/           backend API root (unauthenticated)"
+        echo "    http://$_host_ip:$BACKEND_PORT/docs       backend OpenAPI UI"
+    else
+        warn "    Couldn't auto-detect an address. Find it yourself: 'ipconfig getifaddr en0' (macOS) or 'hostname -I' (Linux)."
+    fi
+    echo ""
+fi
 echo "  Logs: $LOG_DIR/"
 echo ""
 echo "========================================================================"
