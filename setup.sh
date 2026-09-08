@@ -1,9 +1,12 @@
 #!/bin/sh
 # Bonsai Image Demo — One-command setup for macOS and Linux.
-# Installs uv, Python venv, and mflux. Does NOT download models.
+# Installs uv, a Python venv, mflux, and the bundled Node.js toolchain, then
+# downloads the default model (step 7).
 #
 # Usage:
 #   ./setup.sh
+#   BONSAI_VARIANT=binary ./setup.sh   # download the 1-bit model instead
+#   SKIP_DOWNLOAD=1 ./setup.sh         # set up only, no model download
 set -e
 
 # ── Resolve paths ──

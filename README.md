@@ -64,6 +64,7 @@ Ternary (1.58-bit) is the recommended demo variant — better quality at a modes
 |----------|--------|---------|
 | `BONSAI_VARIANT` | `ternary` (1.58-bit) / `binary` (1-bit) | `ternary` |
 | `BONSAI_PACKAGE_MIN_AGE_DAYS` | int | `7` |
+| `SKIP_DOWNLOAD` | `1` to set up without downloading a model | unset |
 
 `BONSAI_VARIANT` is honored by both `setup.sh` (picks which weights to download) and `serve.sh` (picks which model the studio loads). Set it once per session: `BONSAI_VARIANT=binary ./setup.sh` then `BONSAI_VARIANT=binary ./scripts/serve.sh`.
 
@@ -118,8 +119,8 @@ BACKEND_PORT=8800 ./scripts/send_request.sh -p "..."     # custom server
 ### `generate.sh` — one-shot, no server
 
 In-process wrapper around `scripts/generate.py`, drives
-[`prism-image-studio`](vendor/image-studio)'s `FluxPipeline` against the
-local `models/` tree:
+[`prism-image-studio`](https://github.com/PrismML-Eng/image-studio)'s
+`FluxPipeline` against the local `models/` tree:
 
 ```bash
 ./scripts/generate.sh -p "An icy bonsai tree, in a rainy forest with a snowy mountain in the background, photo realistic." --size 1248x832 --seed 9909 --output outputs/icy_bonsai.png --open
@@ -130,8 +131,8 @@ Default is 512×512 (fast preview). Dimensions have to be multiples of 32. Sugge
 | Aspect            | Fast (~0.25MP) | Quality (~1MP) |
 |-------------------|----------------|----------------|
 | Square (1:1)      | 512×512        | 1024×1024      |
-| Landscape (3:2)   | 624×416        | 1248×832       |
-| Portrait (2:3)    | 416×624        | 832×1248       |
+| Landscape (3:2)   | 576×384        | 1248×832       |
+| Portrait (2:3)    | 384×576        | 832×1248       |
 | Wide (2:1)        | 704×352        | 1408×704       |
 | Tall (1:2)        | 352×704        | 704×1408       |
 
