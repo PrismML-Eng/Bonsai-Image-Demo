@@ -94,6 +94,17 @@ has_nvidia_gpu() {
     command -v nvidia-smi >/dev/null 2>&1 || command -v nvcc >/dev/null 2>&1
 }
 
+# ── Non-loopback IP detection (best-effort, for printed URL hints only) ──
+host_ip() {
+    if [ "$(uname -s)" = "Darwin" ]; then
+        _ip=$(ipconfig getifaddr en0 2>/dev/null)
+        [ -z "$_ip" ] && _ip=$(ipconfig getifaddr en1 2>/dev/null)
+        echo "$_ip"
+    elif [ "$(uname -s)" = "Linux" ]; then
+        hostname -I 2>/dev/null | awk '{print $1}'
+    fi
+}
+
 force_native_macos_build_arch() {
     _os="${1:-$(uname -s)}"
     _arch="${2:-$(uname -m)}"
