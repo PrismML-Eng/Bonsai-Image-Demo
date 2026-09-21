@@ -404,7 +404,14 @@ if (Has-NvidiaGpu -and ($env:BONSAI_SKIP_GPU_STACK -ne '1')) {
     # resolve to the linux-only PyPI 'triton' on win32. --no-deps skips
     # the resolver; the install is fine because the top-level `triton`
     # module is already provided by triton-windows.
-    & uv pip install --python $VenvPy --no-deps gemlite hqq
+    #
+    # Pinned to the versions in uv.lock (the Linux/Mac path). gemlite 0.6.0
+    # changed GemLiteLinearTriton.load_state_dict to register W_q/scales/
+    # zeros as nn.Parameters; the vendored per-layer loader in
+    # backend_gpu.pipeline_gpu then fails with "cannot assign
+    # 'torch.cuda.ByteTensor' as parameter 'W_q'" when it moves them to the
+    # GPU. Keep this in sync with uv.lock when bumping gemlite there.
+    & uv pip install --python $VenvPy --no-deps 'gemlite==0.5.1.post1' 'hqq==0.2.8.post1'
     if ($LASTEXITCODE -ne 0) { err "gemlite/hqq install failed."; exit 1 }
 
     # Their actual runtime deps (gemlite needs numpy+tqdm; hqq pulls in
