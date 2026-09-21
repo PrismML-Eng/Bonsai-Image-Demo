@@ -424,9 +424,24 @@ if (Has-NvidiaGpu -and ($env:BONSAI_SKIP_GPU_STACK -ne '1')) {
 
     # Confirm the whole stack imports together. Catches drift (e.g. uv
     # uninstalling something while resolving the next install).
-    $smokeOk = & $VenvPy -c "import torch, triton, gemlite, hqq, diffusers, transformers, accelerate; from backend_gpu.pipeline_gpu import GpuPipeline; print('ok')" 2>&1
-    if ($smokeOk -match '^ok') {
-        $cudaState = & $VenvPy -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_name(0) if torch.cuda.is_available() else '')" 2>&1
+    #
+    # In Windows PowerShell 5.1, a native command whose stderr is merged
+    # via 2>&1 under $ErrorActionPreference = 'Stop' throws
+    # NativeCommandError on the first stderr line. triton-windows prints
+    # a harmless import-time UserWarning ("Failed to find executable
+    # ptxas-blackwell.exe") to stderr, which aborted the whole script
+    # here. Relax the preference around the smoke test so stderr is
+    # captured as text, join the output into one string (the warning
+    # lines come before 'ok'), and match multiline.
+    $prevEAP = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    $smokeOk = (& $VenvPy -c "import torch, triton, gemlite, hqq, diffusers, transformers, accelerate; from backend_gpu.pipeline_gpu import GpuPipeline; print('ok')" 2>&1) -join "`n"
+    $cudaState = ''
+    if ($smokeOk -match '(?m)^ok') {
+        $cudaState = (& $VenvPy -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_name(0) if torch.cuda.is_available() else '')" 2>&1) -join "`n"
+    }
+    $ErrorActionPreference = $prevEAP
+    if ($smokeOk -match '(?m)^ok') {
         info "Windows GPU stack ready ($cudaState)"
     } else {
         warn "Windows GPU stack installed but import smoke test failed:"
